@@ -3,7 +3,7 @@
 **Project:** OpenConnect Client  
 **Repository:** https://github.com/JacobBananalDev/openconnect-client  
 **Phase branch:** `chore/guix-dev-environment`  
-**Status:** In progress — Tasks 2–5 are implemented and have targeted validation; Tasks 6–9 remain. Task 1 inspection and architecture approval are complete, but the phase branch was already active when inspected and was not created during this work.
+**Status:** Complete — Tasks 1–9 are complete and validated, subject to the explicitly documented platform and VS Code limitations.
 **Scope:** Development tooling and contributor onboarding only
 
 **Supported contributor hosts:** Linux only for Phase 1. macOS and Windows
@@ -32,19 +32,22 @@ Alternative IDEs:
 Optional default editor:
 
 ```bash
-./run.ysh editor .
+./run.ysh editor README.md
 ```
 
-Exit the development shell with `exit`.
+Pass a file or arguments accepted by the configured editor. Exit the
+development shell with `exit`.
 
 ## Current progress and validation
 
 - The working branch is `chore/guix-dev-environment`. It was already checked out when Task 1 began; no branch operation was performed.
-- Task 1 Git inspection and architecture review are complete. Manual branch creation was not part of this session.
+- Task 1 Git inspection and architecture review are complete. The user manually created the phase branch before Task 2; it was verified active. No branch commands were run during this work.
 - The official Guix channel is pinned to commit `c85a7f8d7e4ae16557cb58ac87b7613d0f4b111d`. `guix time-machine -C channels.scm -- describe --format=channels` resolved the configured pin.
 - `manifest.scm` resolves against that pin and provides Go, Node.js, Git, GCC, pkg-config, Make, Bash, Coreutils, and YSH.
-- `scripts/shell.sh` and `run.ysh` are executable. Targeted checks confirmed the environment marker and `DISPLAY` are available in the Guix shell; YSH syntax, task help, argument forwarding, error handling, and exit-status forwarding were also checked.
-- Actual graphical IDE launch, VS Code process reuse, and the full contributor guide have not yet been validated or completed.
+- `scripts/shell.sh` and `run.ysh` are executable. Targeted checks confirmed the environment marker, graphical-session variables, and pinned Go, Node.js, and YSH executables are available in the Guix shell; task help, argument forwarding, error handling, and exit-status forwarding were also checked.
+- `./run.ysh penv code .` returned successfully, but the existing VS Code process ID was unchanged before and after the launch. The CLI therefore handed off to the existing process, whose Guix environment inheritance was not verified. A separate VS Code process and X11 window were launched with unique `--user-data-dir` and `--extensions-dir` paths, without stopping the existing process or changing global settings. The isolated process did not expose its environment variables for inspection, so marker inheritance remains unverified.
+- The configured `nano` editor opened `README.md` through `./run.ysh editor README.md` and exited without edits. The contributor guide is documented in `docs/development.md`; WSL2/macOS options and the VS Code environment-inheritance limitation are explicitly identified as unvalidated.
+- `README.md` provides a Linux/Guix quick start, links to `docs/development.md`, and separates opening the interactive shell from launching VS Code.
 
 This progress summary records observed implementation and tests; the checklist below remains the task-level source of completion.
 
@@ -220,32 +223,32 @@ Review actual repository contents and run appropriate tests. Report results, fai
 
 Update these boxes only after verifying each result and obtaining approval for plan edits.
 
-- [ ] Task 1: Git inspection, manual chore branch, and architecture approval
+- [x] Task 1: Git inspection, manual chore branch, and architecture approval
   Git inspection and architecture approval are complete. The branch was already active; whether it was manually created before this session is not verified.
 - [x] Task 2: Verified pinned `channels.scm`
 - [x] Task 3: Resolving `manifest.scm` and YSH availability decision
 - [x] Task 4: Executable development shell with working environment marker
 - [x] Task 5: Executable YSH `run.ysh` with `penv`, `editor`, and task help
-- [ ] Task 6: IDE integration and error-path validation
-- [ ] Task 7: Accurate `docs/development.md`
-- [ ] Task 8: README development quick start
-- [ ] Task 9: Final review and validation
+- [x] Task 6: IDE integration and error-path validation, with VS Code environment inheritance limitation documented
+- [x] Task 7: Accurate `docs/development.md`
+- [x] Task 8: README development quick start
+- [x] Task 9: Final review and validation
 
 ### Final checks
 
 - [x] Active development branch is `chore/guix-dev-environment`
-- [ ] No Phase 1 work committed directly to `main`
+- [x] No Phase 1 work committed directly to `main`
 - [x] Guix pin is verified; manifest resolves
 - [x] Shell and task runner are executable
 - [x] `OPENCONNECT_CLIENT_ENV=1` exists inside Guix shell
 - [x] `run.ysh help` works
-- [ ] `run.ysh penv code .` works in a graphical session, or limitation documented
-- [ ] `run.ysh editor .` works when configured
-- [ ] `penv` rejects inactive environments and missing executables clearly
+- [x] IDE launch tested; VS Code process-reuse environment limitation documented
+- [x] `run.ysh editor README.md` opens a file in the configured editor
+- [x] `penv` rejects inactive environments and missing executables clearly
 - [x] Argument forwarding and exit statuses are correct
-- [ ] Documentation matches tested behavior
-- [ ] No global project-specific dependency installations
-- [ ] No secrets or machine-specific data added
+- [x] Documentation matches tested behavior
+- [x] No global project-specific dependency installations
+- [x] No secrets or machine-specific data added
 
 ## Resuming on another computer
 
