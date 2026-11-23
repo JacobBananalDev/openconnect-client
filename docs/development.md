@@ -99,17 +99,95 @@ project directory, use `penv`, for example `./run.ysh penv code .`.
 
 ## Task help
 
-The task runner currently has no public project tasks. Internal environment
-helpers are intentionally omitted from the task list. Run:
+The task runner provides public project tasks and internal environment
+helpers. Run:
 
 ```bash
 ./run.ysh
 ./run.ysh list-tasks
-./run.ysh help penv
+./run.ysh help build
 ```
 
-As public project tasks are added, they will appear in the task list with
+As more project tasks are added, they will appear in the task list with
 summaries. `NO_COLOR=1` disables terminal color.
+
+## Go development workflow
+
+Phase 2 introduces a minimal Go CLI application with associated development
+tasks. Contributor commands run from inside the development shell
+(after `./scripts/shell.sh`):
+
+```bash
+./run.ysh list-tasks   # See all available tasks
+./run.ysh build -h     # Get help for a specific task
+```
+
+### Available Go tasks
+
+**Build the CLI:**
+```bash
+./run.ysh build
+# Output: build/occlient (2.4 MB executable)
+```
+
+**Run the CLI:**
+```bash
+./run.ysh run --help
+./run.ysh run version
+# If build/occlient is missing, it is rebuilt automatically.
+```
+
+**Run unit tests:**
+```bash
+./run.ysh unit-test
+# Runs go test ./... with verbose output and coverage reporting.
+# Expected: 10 tests pass, 92.9% coverage.
+```
+
+**Format code:**
+```bash
+./run.ysh fmt
+# Runs gofmt -w . to format all Go source files.
+```
+
+**Check code quality:**
+```bash
+./run.ysh lint
+# Runs go vet ./... to detect common Go programming errors.
+```
+
+**Scan for vulnerabilities:**
+```bash
+./run.ysh vuln
+# Runs govulncheck ./... to check for known security vulnerabilities.
+# Phase 2 uses only the Go standard library; expect no vulnerabilities.
+```
+
+### CLI capabilities
+
+The `occlient` CLI supports:
+
+```bash
+./build/occlient -h          # Show help
+./build/occlient --help      # Show help
+./build/occlient help        # Show help
+./build/occlient version     # Show version
+./build/occlient -v          # Show version
+./build/occlient --version   # Show version
+```
+
+**Note:** This is an early CLI foundation. No VPN connectivity or other
+application features are implemented in Phase 2.
+
+### Rebuilding after changes
+
+The build output directory is `build/` and is ignored by Git. After editing
+Go source files:
+
+```bash
+./run.ysh build      # Rebuild manually, or
+./run.ysh run ...    # Automatically rebuilds if the binary is missing
+```
 
 ## Troubleshooting
 
