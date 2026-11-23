@@ -12,24 +12,25 @@ installations.
 
 ## Development
 
-Phase 1 is designed for Linux and has only been checked on a Linux host. On
-Windows, WSL2 may provide a Linux environment for development. WSL is not
-available on macOS; use a Linux virtual machine or remote Linux host instead.
-These non-Linux-host options have not been validated for this project. The
-development environment also requires GNU Guix, and launching an IDE requires
-graphical-session integration.
+Phase 1 targets Linux with GNU Guix and has only been checked on a Linux host.
+Windows contributors may be able to use WSL2; macOS contributors need a Linux
+virtual machine or remote Linux host. These non-Linux-host options have not
+been validated.
 
 ```bash
 git clone https://github.com/JacobBananalDev/openconnect-client.git
 cd openconnect-client
 ./scripts/shell.sh
+```
+
+When the project shell opens, launch VS Code (installed on the host):
+
+```bash
 ./run.ysh penv code .
 ```
 
-The shell starts the pinned project environment. When finished, leave it with
-`exit`. To launch another installed IDE, pass its executable instead, for
-example `./run.ysh penv codium .` or `./run.ysh penv cursor .`. The optional
-`./run.ysh editor .` task uses `VISUAL`, then `EDITOR`.
+Exit the project shell with `exit`. See the [development guide](docs/development.md)
+for prerequisites, alternative IDE/editor workflows, and troubleshooting.
 
 See the [Phase 1 development-environment plan](docs/plans/phase-1-dev-environment.md)
 for architecture, task scope, validation status, and remaining work.
