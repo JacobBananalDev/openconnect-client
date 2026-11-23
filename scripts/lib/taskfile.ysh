@@ -1,0 +1,140 @@
+var _task_file = $(realpath "$0")
+var _task_source = $(cat "$_task_file")
+var _task_docs = []
+var _pending_doc = {}
+var _doc_section = ''
+
+for line in (_task_source.split(u'\n')) {
+	var trimmed = line.trim()
+
+	if (trimmed.startsWith('## usage: ')) {
+		setvar _pending_doc['usage'] = trimmed[10:]
+		setvar _doc_section = ''
+	} elif (trimmed.startsWith('## visibility: ')) {
+		setvar _pending_doc['visibility'] = trimmed[15:]
+		setvar _doc_section = ''
+	} elif (trimmed.startsWith('## summary: ')) {
+		setvar _pending_doc['summary'] = trimmed[12:]
+		setvar _doc_section = ''
+	} elif (trimmed === '## description:') {
+		setvar _doc_section = 'description'
+	} elif (trimmed === '## options:') {
+		setvar _doc_section = 'options'
+	} elif (trimmed.startsWith('##') and _doc_section) {
+		var detail = trimmed[3:]
+		var existing = get(_pending_doc, _doc_section, '')
+		if (existing) {
+			setvar _pending_doc[_doc_section] = existing ++ u'\n' ++ detail
+		} else {
+			setvar _pending_doc[_doc_section] = detail
+		}
+	} elif (trimmed.startsWith('proc ')) {
+		var declaration = trimmed[5:]
+		var name = declaration.split(u' ')[0]
+		var name_end = name.find('(')
+		if (name_end >= 0) {
+			setvar name = name[:name_end]
+		}
+		if (not name.startsWith('_')) {
+			setvar _pending_doc['name'] = name
+			call _task_docs->append(_pending_doc)
+		}
+		setvar _pending_doc = {}
+		setvar _doc_section = ''
+	}
+}
+
+proc _print-task-list {
+	var color = false
+	if (not get(ENV, 'NO_COLOR')) {
+		if test -t 1 {
+			setvar color = true
+		}
+	}
+
+	if (color) {
+		printf '\033[1;36mOpenConnect Client\033[0m  \033[1mDevelopment Tasks\033[0m\n'
+		printf '\033[2m%s\033[0m\n' '-----------------------------------'
+	} else {
+		write -- 'OpenConnect Client | Development Tasks'
+		write -- '---------------------------------------'
+	}
+
+	var visible_count = 0
+	for doc in (_task_docs) {
+		if (get(doc, 'visibility', 'public') !== 'internal') {
+			if (color) {
+				printf '  \033[1;32m%-12s\033[0m %s\n' "$[doc.name]" "$[get(doc, 'summary', 'No description available')]"
+			} else {
+				write -- "  $[doc.name] - $[get(doc, 'summary', 'No description available')]"
+			}
+			setvar visible_count = visible_count + 1
+		}
+	}
+
+	if (visible_count === 0) {
+		write -- ''
+		write -- 'No project tasks are available yet.'
+		write -- 'Project tasks will appear here as they are added.'
+	}
+}
+
+proc _print-task-help(task_name) {
+	for doc in (_task_docs) {
+		if (doc.name === task_name) {
+			var usage = get(doc, 'usage', "$task_name [ARG...]")
+			write -- "USAGE: $usage"
+			write -- $[get(doc, 'summary', '')]
+			var description = get(doc, 'description', '').trim()
+			if (description) {
+				write -- ''
+				write -- 'DESCRIPTION:'
+				write -- $description
+			}
+			var options = get(doc, 'options', '').trim()
+			if (options) {
+				write -- ''
+				write -- 'OPTIONS:'
+				write -- $options
+			}
+			return
+		}
+	}
+
+	printf 'Error: no task named "%s". Run "./run.ysh list-tasks" to see available tasks.\n' "$task_name" >&2
+	exit 2
+}
+
+if (len(ARGV) === 0 or ARGV[0] === 'list-tasks' or ARGV[0] === '--help' or ARGV[0] === '-h') {
+	_print-task-list
+	exit
+}
+
+if (ARGV[0] === 'help') {
+	if (len(ARGV) === 1) {
+		_print-task-list
+	} else {
+		_print-task-help $[ARGV[1]]
+	}
+	exit
+}
+
+if (len(ARGV) > 1 and (ARGV[1] === '--help' or ARGV[1] === '-h')) {
+	_print-task-help $[ARGV[0]]
+	exit
+}
+
+var task_found = false
+for doc in (_task_docs) {
+	if (doc.name === ARGV[0]) {
+		setvar task_found = true
+		break
+	}
+}
+if (not task_found) {
+	printf 'Error: unknown task "%s".\n' "$[ARGV[0]]" >&2
+	_print-task-list >&2
+	exit 2
+}
+
+@ARGV

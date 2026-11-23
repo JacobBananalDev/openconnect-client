@@ -5,22 +5,13 @@ proc _err(message; status=1) {
 	exit $status
 }
 
-## usage: help
-##
-## summary: display task help
-proc help {
-	write -- """
-USAGE:
-  ./run.ysh penv EDITOR [ARG...]
-  ./run.ysh editor [ARG...]
-  ./run.ysh help
-"""
+proc _require_project_environment {
+	if (get(ENV, 'OPENCONNECT_CLIENT_ENV') !== '1') {
+		_err "The project environment is not active. Run: ./scripts/shell.sh"
+	}
 }
 
-if (get(ENV, 'OPENCONNECT_CLIENT_ENV') !== '1') {
-	_err "The project environment is not active. Run: ./scripts/shell.sh"
-}
-
+## visibility: internal
 ## usage: penv EDITOR [ARG...]
 ##
 ## summary: run a command in the active project environment
@@ -28,6 +19,7 @@ if (get(ENV, 'OPENCONNECT_CLIENT_ENV') !== '1') {
 ## description:
 ## Requires the project environment marker and forwards arguments and exit status.
 proc penv {
+	_require_project_environment
 	if (len(ARGV) === 0) {
 		_err "Missing executable. Usage: ./run.ysh penv EDITOR [ARG...]"
 	}
@@ -40,13 +32,15 @@ proc penv {
 	@ARGV
 }
 
+## visibility: internal
 ## usage: editor [ARG...]
 ##
 ## summary: run VISUAL or EDITOR in the active project environment
 ##
 ## description:
-## Prefers VISUAL, then EDITOR. Complex editor command strings are not split.
+## Prefers VISUAL, then EDITOR. Set either variable to one executable path.
 proc editor {
+	_require_project_environment
 	var editor = get(ENV, 'VISUAL')
 	if (not editor) {
 		setvar editor = get(ENV, 'EDITOR')
@@ -61,4 +55,4 @@ proc editor {
 	$editor @ARGV
 }
 
-. scripts/lib/taskfile.sh
+. "$[_this_dir]/scripts/lib/taskfile.ysh"
