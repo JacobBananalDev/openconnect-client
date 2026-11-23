@@ -1,0 +1,52 @@
+#!/bin/bash
+# Pre-commit hook: format check, linting, and basic validation
+# Prevents commits with formatting issues or obvious mistakes
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Check if we're in the project environment
+if [ -z "$OPENCONNECT_CLIENT_ENV" ]; then
+    echo "⚠ Warning: Project environment not active. Run: ./scripts/shell.sh"
+    echo "  Skipping pre-commit checks."
+    exit 0
+fi
+
+# Format check: ensure code is formatted
+echo "Checking code formatting..."
+if ! go fmt ./... >/dev/null 2>&1; then
+    echo "✗ Code is not properly formatted. Run: ./run.ysh fmt"
+    exit 1
+fi
+
+# Verify no unformatted files would be staged
+UNFORMATTED=$(gofmt -l . 2>/dev/null | grep -c "\.go$" || true)
+if [ "$UNFORMATTED" -gt 0 ]; then
+    echo "✗ Found $UNFORMATTED unformatted Go files:"
+    gofmt -l .
+    echo "  Run: ./run.ysh fmt"
+    exit 1
+fi
+
+# Linting: go vet checks
+echo "Running linter (go vet)..."
+if ! go vet ./...; then
+    echo "✗ Linting failed. Fix the errors above."
+    exit 1
+fi
+
+# Basic secret check: reject files with obvious secrets
+echo "Checking for accidental secrets..."
+if git diff --cached --name-only | grep -qE '\.(go|md|yml|yaml)$'; then
+    # Check staged files for obvious patterns (AWS keys, API keys, passwords)
+    if git diff --cached | grep -iE '(password|api[_-]?key|secret|token|aws|credentials)\s*=' | grep -v "example" | grep -qv "//" ; then
+        echo "⚠ Warning: Potential secrets detected in staged changes!"
+        echo "  Review the diff carefully before committing."
+        echo "  Use --no-verify to bypass this check (not recommended)."
+        exit 1
+    fi
+fi
+
+echo "✓ Pre-commit checks passed"
+exit 0

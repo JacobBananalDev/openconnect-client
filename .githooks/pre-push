@@ -1,0 +1,31 @@
+#!/bin/bash
+# Pre-push hook: run full test suite and security checks
+# Prevents pushing broken code or known vulnerabilities
+
+set -e
+
+echo "Running pre-push checks..."
+
+# Check if we're in the project environment
+if [ -z "$OPENCONNECT_CLIENT_ENV" ]; then
+    echo "⚠ Warning: Project environment not active. Run: ./scripts/shell.sh"
+    echo "  Skipping pre-push checks."
+    exit 0
+fi
+
+# Run full test suite
+echo "Running test suite..."
+if ! go test ./... -v; then
+    echo "✗ Tests failed. Fix failures before pushing."
+    exit 1
+fi
+
+# Run security vulnerability check
+echo "Running security scan..."
+if ! go run golang.org/x/vuln/cmd/govulncheck@latest ./...; then
+    echo "✗ Security vulnerabilities detected. Fix before pushing."
+    exit 1
+fi
+
+echo "✓ Pre-push checks passed"
+exit 0
