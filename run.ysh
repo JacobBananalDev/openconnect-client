@@ -55,4 +55,69 @@ proc editor {
 	$editor @ARGV
 }
 
+## usage: ./run.ysh build
+## summary: Build the occlient CLI to build/occlient
+## description:
+## Compiles cmd/occlient to a standalone executable in build/occlient.
+proc build {
+	_require_project_environment
+	mkdir -p build
+	go build -o build/occlient ./cmd/occlient
+	printf '\e[1;32m✓\e[0m Built: build/occlient\n'
+}
+
+## usage: ./run.ysh run [ARG...]
+## summary: Run the occlient CLI with arguments
+## description:
+## Executes the built occlient binary (or rebuilds if missing).
+## Arguments are passed through to occlient.
+proc run {
+	_require_project_environment
+	if ! test -f build/occlient {
+		printf '\e[1;33m⚠\e[0m build/occlient not found, building...\n'
+		call build
+	}
+	shift  # Remove 'run' from ARGV
+	./build/occlient @ARGV
+}
+
+## usage: ./run.ysh unit-test
+## summary: Run all unit tests with coverage
+## description:
+## Executes go test ./... with verbose output and coverage reporting.
+proc unit-test {
+	_require_project_environment
+	go test ./... -v -cover
+}
+
+## usage: ./run.ysh fmt
+## summary: Format all Go code with gofmt
+## description:
+## Applies gofmt -w to format all .go files in the project.
+proc fmt {
+	_require_project_environment
+	gofmt -w .
+	printf '\e[1;32m✓\e[0m Code formatted\n'
+}
+
+## usage: ./run.ysh lint
+## summary: Run go vet to check for common mistakes
+## description:
+## Executes go vet ./... to detect common Go programming errors.
+proc lint {
+	_require_project_environment
+	go vet ./...
+	printf '\e[1;32m✓\e[0m Linting passed\n'
+}
+
+## usage: ./run.ysh vuln
+## summary: Check for known vulnerabilities with govulncheck
+## description:
+## Runs go run golang.org/x/vuln/cmd/govulncheck@latest to scan for
+## known security vulnerabilities affecting the project.
+proc vuln {
+	_require_project_environment
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+}
+
 . "$[_this_dir]/scripts/lib/taskfile.ysh"
