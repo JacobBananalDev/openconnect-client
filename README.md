@@ -12,7 +12,12 @@ installations.
 
 ## Development
 
-Prerequisites: Linux, GNU Guix, and a graphical session to launch an IDE.
+Phase 1 is designed for Linux and has only been checked on a Linux host. On
+Windows, WSL2 may provide a Linux environment for development. WSL is not
+available on macOS; use a Linux virtual machine or remote Linux host instead.
+These non-Linux-host options have not been validated for this project. The
+development environment also requires GNU Guix, and launching an IDE requires
+graphical-session integration.
 
 ```bash
 git clone https://github.com/JacobBananalDev/openconnect-client.git

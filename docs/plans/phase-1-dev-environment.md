@@ -6,6 +6,9 @@
 **Status:** In progress — Tasks 2–5 are implemented and have targeted validation; Tasks 6–9 remain. Task 1 inspection and architecture approval are complete, but the phase branch was already active when inspected and was not created during this work.
 **Scope:** Development tooling and contributor onboarding only
 
+**Supported contributor hosts:** Linux only for Phase 1. macOS and Windows
+workflows are not supported by this plan.
+
 ## Goal
 
 Make it easy for a Linux contributor to clone OpenConnect Client, enter a pinned GNU Guix development environment, and launch an IDE with the project toolchain, without installing Go, Node.js, or other project-specific dependencies globally.
@@ -41,7 +44,7 @@ Exit the development shell with `exit`.
 - The official Guix channel is pinned to commit `c85a7f8d7e4ae16557cb58ac87b7613d0f4b111d`. `guix time-machine -C channels.scm -- describe --format=channels` resolved the configured pin.
 - `manifest.scm` resolves against that pin and provides Go, Node.js, Git, GCC, pkg-config, Make, Bash, Coreutils, and YSH.
 - `scripts/shell.sh` and `run.ysh` are executable. Targeted checks confirmed the environment marker and `DISPLAY` are available in the Guix shell; YSH syntax, task help, argument forwarding, error handling, and exit-status forwarding were also checked.
-- Actual graphical IDE launch, VS Code process reuse, the optional Guix container mode, and the full contributor guide have not yet been validated or completed.
+- Actual graphical IDE launch, VS Code process reuse, and the full contributor guide have not yet been validated or completed.
 
 This progress summary records observed implementation and tests; the checklist below remains the task-level source of completion.
 
@@ -61,7 +64,7 @@ openconnect-client/
 │       └── phase-1-dev-environment.md
 ├── scripts/
 │   ├── lib/
-│   │   └── taskfile.sh                # YSH task/help dispatch used by run.ysh
+│   │   └── taskfile.ysh               # YSH task/help dispatch used by run.ysh
 │   └── shell.sh                       # Created in Task 4
 ├── channels.scm                       # Created in Task 2
 ├── manifest.scm                       # Created in Task 3
@@ -160,21 +163,22 @@ guix time-machine -C channels.scm -- \
 
 - Ensure `OPENCONNECT_CLIENT_ENV=1` is **inside** the launched development shell, not just the parent process.
 - Preserve required graphical-session variables for launching IDEs.
-- No `sudo`, global profile edits, or unsafe `eval`; safe quoting and documented `exit` behavior.
-- The wrapper also accepts `-c`/`--container` for an optional Guix container shell; validate this mode separately before relying on it.
+- Reject unsupported arguments and fail clearly if Guix is already active.
+- No `sudo`, container mode, global profile edits, or unsafe `eval`; safe quoting and documented `exit` behavior.
 - Validate syntax and failure paths.
 
 **Acceptance:** Environment starts, marker is present, and failures are clear.
 
 ## Task 5 — YSH/Oils task runner
 
-**Files:** `run.ysh`, `scripts/lib/taskfile.sh`
+**Files:** `run.ysh`, `scripts/lib/taskfile.ysh`
 
 Implement genuine, validated YSH/Oils syntax for:
 
 - **`penv EDITOR [ARG...]`** — check marker, require executable, forward arguments and exit status; intended for `code .`, `codium .`, `cursor .`. No installs or implicit Guix activation.
 - **`editor [ARG...]`** — check marker, prefer `VISUAL` then `EDITOR`, forward arguments safely, explain limitations for complex editor command strings rather than using `eval` or unsafe whitespace splitting.
-- **`help`** and **`list-tasks`** — provide task usage and summaries from task documentation comments using the shared YSH helper in `scripts/lib/taskfile.sh`.
+- **`help`** and **`list-tasks`** — provide task usage and summaries from task documentation comments using the shared YSH helper in `scripts/lib/taskfile.ysh`.
+- Task listings show public tasks only; mark helper commands with `## visibility: internal` to keep them callable but out of the list.
 
 Do not automatically install `gopls`, `dlv`, or other tools when launching an IDE. Keep task-runner logic simple.
 
