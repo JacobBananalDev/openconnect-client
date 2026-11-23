@@ -1,4 +1,4 @@
-name: CI
+name: Test, Lint, and Build
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
       - main
 
 jobs:
-  ci:
+  quality:
     runs-on: ubuntu-latest
     
     strategy:
@@ -47,12 +47,12 @@ jobs:
       
       - name: Check coverage
         run: |
-          # Extract coverage percentage
-          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          # Extract coverage percentage and convert to integer for comparison
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | cut -d'%' -f1)
+          COVERAGE_INT=$(printf "%.0f" "$COVERAGE")
           echo "Coverage: ${COVERAGE}%"
           
-          # Fail if coverage below 75% (using shell arithmetic)
-          COVERAGE_INT=$(echo "$COVERAGE" | awk -F. '{print $1}')
+          # Fail if coverage below 75%
           if [ "$COVERAGE_INT" -lt 75 ]; then
             echo "❌ Coverage ${COVERAGE}% is below 75% threshold"
             exit 1
