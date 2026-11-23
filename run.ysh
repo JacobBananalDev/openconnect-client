@@ -1,0 +1,58 @@
+#!/usr/bin/env ysh
+
+proc _err(message; status=1) {
+	printf '\e[1;7;31m ERROR \e[0m %s\n' $message >&2
+	exit $status
+}
+
+proc _require_project_environment {
+	if (get(ENV, 'OPENCONNECT_CLIENT_ENV') !== '1') {
+		_err "The project environment is not active. Run: ./scripts/shell.sh"
+	}
+}
+
+## visibility: internal
+## usage: penv EDITOR [ARG...]
+##
+## summary: run a command in the active project environment
+##
+## description:
+## Requires the project environment marker and forwards arguments and exit status.
+proc penv {
+	_require_project_environment
+	if (len(ARGV) === 0) {
+		_err "Missing executable. Usage: ./run.ysh penv EDITOR [ARG...]"
+	}
+
+	var executable = ARGV[0]
+	if ! command -v $executable >/dev/null 2>&1 {
+		_err "Executable not found: $executable"
+	}
+
+	@ARGV
+}
+
+## visibility: internal
+## usage: editor [ARG...]
+##
+## summary: run VISUAL or EDITOR in the active project environment
+##
+## description:
+## Prefers VISUAL, then EDITOR. Set either variable to one executable path.
+proc editor {
+	_require_project_environment
+	var editor = get(ENV, 'VISUAL')
+	if (not editor) {
+		setvar editor = get(ENV, 'EDITOR')
+	}
+	if (not editor) {
+		_err "No default editor configured. Set VISUAL or EDITOR."
+	}
+	if ! command -v $editor >/dev/null 2>&1 {
+		_err "Editor executable not found: $editor"
+	}
+
+	$editor @ARGV
+}
+
+. "$[_this_dir]/scripts/lib/taskfile.ysh"
