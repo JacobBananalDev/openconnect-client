@@ -55,3 +55,19 @@ func TestInvalidCommandError(t *testing.T) {
 		t.Errorf("error output should contain 'unknown command'; got: %s", errOut)
 	}
 }
+
+func TestConnectCommandExists(t *testing.T) {
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	// connect without --server should fail with usage error (exit code 2)
+	code := Run([]string{"connect"}, stdout, stderr)
+
+	if code != 2 {
+		t.Errorf("connect without --server should exit 2, got %d", code)
+	}
+
+	errOut := stderr.String()
+	if !strings.Contains(errOut, "--server is required") {
+		t.Errorf("error output should mention --server is required; got: %s", errOut)
+	}
+}

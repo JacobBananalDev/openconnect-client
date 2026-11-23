@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        go-version: ['1.21', '1.22', '1.23']
+    
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ matrix.go-version }}
+      
+      - name: Format check
+        run: |
+          if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+            echo "❌ Code is not formatted. Run: gofmt -s -w ."
+            gofmt -s -d .
+            exit 1
+          fi
+          echo "✓ Code formatting check passed"
+      
+      - name: Lint (go vet)
+        run: |
+          go vet ./...
+          echo "✓ Linting passed"
+      
+      - name: Run tests
+        run: |
+          go test ./... -v -coverprofile=coverage.out
+          echo "✓ Tests passed"
+      
+      - name: Check coverage
+        run: |
+          # Extract coverage percentage
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Coverage: ${COVERAGE}%"
+          
+          # Fail if coverage below 75%
+          if (( $(echo "$COVERAGE < 75" | bc -l) )); then
+            echo "❌ Coverage ${COVERAGE}% is below 75% threshold"
+            exit 1
+          fi
+          echo "✓ Coverage check passed (${COVERAGE}%)"
+      
+      - name: Security scan (govulncheck)
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+          echo "✓ Security scan passed"
+      
+      - name: Build binary
+        run: |
+          mkdir -p build
+          go build -o build/occlient ./cmd/occlient
+          echo "✓ Binary built successfully"
+      
+      - name: Verify binary
+        run: |
+          ./build/occlient --version
+          ./build/occlient -h | grep -q "Usage:"
+          ./build/occlient connect -h | grep -q "Usage:"
+          echo "✓ Binary verification passed"
