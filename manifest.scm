@@ -1,0 +1,10 @@
+(specifications->manifest
+ '("go"
+   "node"
+   "git"
+   "gcc-toolchain"
+   "pkg-config"
+   "make"
+   "bash"
+   "coreutils"
+   "oils-for-unix"))
