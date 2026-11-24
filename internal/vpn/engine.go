@@ -6,16 +6,20 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"syscall"
+	"time"
 )
+
+const disconnectTimeout = 5 * time.Second
 
 // Engine manages VPN connection lifecycle.
 // It is safe for concurrent use and enforces one active connection at a time.
 //
 // LIFECYCLE:
 //
-// An Engine starts in StateDisconnected. Calling Connect transitions to StateConnecting,
-// then to StateConnected if the process starts successfully. If the process exits
-// unexpectedly during Connecting or Connected, the state transitions to StateFailed.
+// An Engine starts in StateDisconnected. Connect transitions to StateConnecting.
+// Process startup does not establish tunnel readiness, so the engine does not
+// transition to StateConnected. Unexpected process exit transitions to StateFailed.
 //
 // Calling Disconnect from StateConnecting or StateConnected transitions to
 // StateDisconnecting, then to StateDisconnected when the process has exited.
@@ -26,7 +30,7 @@ import (
 //
 // Connect and Disconnect are mutex-protected; only one can be active at a time.
 // Duplicate Connect calls are rejected with ErrAlreadyConnecting.
-// Duplicate Disconnect calls during an active disconnect return ErrDisconnectInProgress.
+// Concurrent Disconnect calls wait for the same process exit.
 // State() is a read-only snapshot and safe for concurrent calls.
 //
 // SHUTDOWN SEMANTICS:
@@ -36,11 +40,9 @@ import (
 // then updates the state if the exit was unexpected. The goroutine will eventually exit
 // when the process exits; there is no explicit cleanup needed.
 //
-// Disconnect sends a cancellation signal to the process via context cancellation
-// (which may translate to SIGTERM if the process adapter supports it), waits for
-// graceful shutdown, and force-kills (SIGKILL) if the timeout is exceeded. All
-// goroutines and resources are cleaned up during Disconnect; calling Disconnect
-// is idempotent—repeated calls have no additional effect.
+// Disconnect signals the process, waits for it to exit, and force-kills it
+// after five seconds or when the provided context expires, whichever is first.
+// The monitor owns the single Process.Wait call.
 //
 // RESOURCE MANAGEMENT:
 //
@@ -52,17 +54,14 @@ import (
 //
 // KNOWN LIMITATIONS:
 //
-//   - StateConnected is set optimistically after successful process start;
-//     it does not distinguish between "process running" and "tunnel actually active"
+//   - Tunnel readiness is not detected; a running process remains Connecting.
 //   - Future auth phase can refine this by parsing OpenConnect output or other signals
-//   - No persistent background connection across CLI invocations (foreground only in Phase 3)
 type Engine struct {
 	runner  ProcessRunner
 	mu      sync.RWMutex
 	state   ConnectionState
 	process Process
-	cancel  context.CancelFunc
-	ctx     context.Context
+	done    chan struct{}
 }
 
 // NewEngine creates a lifecycle controller with a process runner.
@@ -86,7 +85,7 @@ func (e *Engine) Connect(ctx context.Context, config ConnectionConfig) error {
 	defer e.mu.Unlock()
 
 	// Reject duplicate starts.
-	if e.state == StateConnecting || e.state == StateConnected {
+	if e.state == StateConnecting || e.state == StateConnected || e.state == StateDisconnecting {
 		return ErrAlreadyConnecting
 	}
 
@@ -98,78 +97,74 @@ func (e *Engine) Connect(ctx context.Context, config ConnectionConfig) error {
 
 	// Update state and create a cancellation context.
 	e.state = StateConnecting
-	e.ctx, e.cancel = context.WithCancel(ctx)
+	processCtx, cancel := context.WithCancel(ctx)
 
 	// Build arguments (safe, no shell interpolation).
 	args := e.buildOpenConnectArgs(config)
 
 	// Start the OpenConnect process.
-	proc, err := e.runner.StartCommand(e.ctx, "openconnect", args)
+	proc, err := e.runner.StartCommand(processCtx, "openconnect", args)
 	if err != nil {
 		e.state = StateFailed
-		e.cancel()
+		cancel()
 		return fmt.Errorf("failed to start OpenConnect: %w", err)
 	}
 
 	e.process = proc
+	e.done = make(chan struct{})
 
 	// Monitor the process in a background goroutine.
 	// If it exits unexpectedly, mark as failed.
-	go e.monitorProcess()
+	go e.monitorProcess(proc, e.done, cancel)
 
 	return nil
 }
 
 // Disconnect terminates the active connection.
 // If no connection is active, Disconnect returns nil (idempotent).
-// Graceful shutdown: sends SIGTERM and waits. Force kill on timeout.
+// Graceful shutdown: sends SIGTERM and waits. Force kill after at most five seconds.
 func (e *Engine) Disconnect(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, disconnectTimeout)
+	defer cancel()
 	e.mu.Lock()
 	if e.state == StateDisconnected || e.state == StateFailed {
 		e.mu.Unlock()
 		return nil
 	}
 
-	if e.state != StateConnecting && e.state != StateConnected {
-		e.mu.Unlock()
-		return ErrDisconnectInProgress
+	first := e.state != StateDisconnecting
+	if first {
+		e.state = StateDisconnecting
 	}
-
-	e.state = StateDisconnecting
-
-	// Trigger context cancellation (graceful shutdown signal).
-	if e.cancel != nil {
-		e.cancel()
-	}
-
 	process := e.process
+	done := e.done
 	e.mu.Unlock()
 
-	if process == nil {
+	if process == nil || done == nil {
 		return errors.New("internal: process is nil during disconnect")
 	}
 
-	// Wait for clean exit, with timeout.
-	done := make(chan error, 1)
-	go func() {
-		done <- process.Wait()
-	}()
+	var signalErr error
+	if first {
+		signalErr = process.Signal(syscall.SIGTERM)
+	}
+	if errors.Is(signalErr, os.ErrProcessDone) {
+		signalErr = nil
+	}
 
 	select {
-	case err := <-done:
-		e.mu.Lock()
-		e.state = StateDisconnected
-		e.mu.Unlock()
-		return err
+	case <-done:
+		if signalErr != nil {
+			return fmt.Errorf("signal OpenConnect: %w", signalErr)
+		}
+		return nil
 
 	case <-ctx.Done():
-		// Timeout or cancellation: force kill.
-		_ = process.Signal(os.Kill)
-		<-done
-		e.mu.Lock()
-		e.state = StateDisconnected
-		e.mu.Unlock()
-		return fmt.Errorf("disconnect timeout, force-killed: %w", ctx.Err())
+		killErr := process.Signal(os.Kill)
+		if errors.Is(killErr, os.ErrProcessDone) {
+			killErr = nil
+		}
+		return errors.Join(fmt.Errorf("disconnect deadline exceeded: %w", ctx.Err()), signalErr, killErr)
 	}
 }
 
@@ -184,22 +179,19 @@ func (e *Engine) State() ConnectionState {
 // Called in a background goroutine after Connect succeeds.
 // If the process exits while Connecting or Connected, marks state as Failed.
 // Once Disconnect has been called (state >= StateDisconnecting), process exits are expected.
-func (e *Engine) monitorProcess() {
-	err := e.process.Wait()
+func (e *Engine) monitorProcess(process Process, done chan struct{}, cancel context.CancelFunc) {
+	_ = process.Wait()
+	cancel()
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// Only mark as failed if we're still in an active state.
-	// If Disconnecting or already Disconnected, the exit was expected.
-	// StateDisconnecting (value 3) and StateDisconnected (value 0) are both <= StateConnected (value 2)
-	// so we check: only mark as failed if still Connecting or Connected.
 	if e.state == StateConnecting || e.state == StateConnected {
 		e.state = StateFailed
-		// Diagnostic: preserve the error for future event reporting.
-		// In a full implementation, this could be stored and queried.
-		_ = err
+	} else if e.state == StateDisconnecting {
+		e.state = StateDisconnected
 	}
+	close(done)
 }
 
 // buildOpenConnectArgs constructs command-line arguments for OpenConnect.
@@ -225,10 +217,5 @@ func (e *Engine) buildOpenConnectArgs(config ConnectionConfig) []string {
 
 // Errors returned by Engine.
 
-var (
-	// ErrAlreadyConnecting is returned if Connect is called while a connection is in progress.
-	ErrAlreadyConnecting = errors.New("connection already in progress or active")
-
-	// ErrDisconnectInProgress is returned if Disconnect is called while already disconnecting.
-	ErrDisconnectInProgress = errors.New("disconnect already in progress")
-)
+// ErrAlreadyConnecting is returned if Connect is called while a connection is in progress.
+var ErrAlreadyConnecting = errors.New("connection already in progress or active")

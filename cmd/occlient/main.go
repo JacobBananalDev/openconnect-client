@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +9,16 @@ import (
 	"github.com/JacobBananalDev/openconnect-client/internal/app"
 	"github.com/JacobBananalDev/openconnect-client/internal/vpn"
 )
+
+type foregroundRunner struct{}
+
+func (foregroundRunner) StartCommand(ctx context.Context, cmd string, args []string) (vpn.Process, error) {
+	runner, err := vpn.NewRealProcessRunner()
+	if err != nil {
+		return nil, err
+	}
+	return runner.StartCommand(ctx, cmd, args)
+}
 
 func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -23,13 +34,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	case "-v", "--version", "version":
 		fmt.Fprintf(stdout, "occlient version 0.1.0 (dev)\n")
 		return 0
-	case "connect":
-		runner, err := vpn.NewRealProcessRunner()
-		if err != nil {
-			fmt.Fprintf(stderr, "%v\n", err)
-			return 1
+	case "connect", "status", "disconnect":
+		handler := app.NewHandler(foregroundRunner{}, stdout, stderr)
+		switch cmd {
+		case "status":
+			return handler.Status(args[1:])
+		case "disconnect":
+			return handler.Disconnect(args[1:])
 		}
-		handler := app.NewHandler(runner, stdout, stderr)
 		return handler.Connect(args[1:])
 	default:
 		fmt.Fprintf(stderr, "Error: unknown command %q\n", cmd)
@@ -43,6 +55,8 @@ func printHelp(w io.Writer) {
 
 Commands:
   connect [options]          Connect to a VPN server
+  status                     Show daemon connection state
+  disconnect                 Disconnect the daemon connection
   help, -h, --help           Show this help message
   version, -v, --version     Show version
 

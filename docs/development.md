@@ -66,13 +66,17 @@ openconnect-client/
 │   ├── pre-commit              # Local quality gates
 │   └── pre-push                # Test suite verification
 ├── cmd/
-│   └── occlient/
-│       ├── main.go             # CLI entry point
-│       └── main_test.go
+│   ├── occlient/
+│   │   ├── main.go             # CLI entry point
+│   │   └── main_test.go
+│   └── occlientd/
+│       └── main.go             # Daemon entry point
 ├── internal/
 │   ├── app/
 │   │   ├── cli.go              # CLI handler (flags, validation)
 │   │   └── cli_test.go
+│   ├── daemon/                 # Daemon lifecycle
+│   ├── ipc/                    # Unix socket protocol and transport
 │   └── vpn/
 │       ├── types.go            # Core types (Engine, ConnectionState)
 │       ├── engine.go           # VPN engine controller
@@ -84,9 +88,12 @@ openconnect-client/
 │   ├── plans/
 │   │   ├── phase-1-dev-environment.md
 │   │   ├── phase-2-go-foundation.md
-│   │   └── phase-3-vpn-engine.md
+│   │   ├── phase-3-vpn-engine.md
+│   │   └── phase-4-background-vpn-service.md
+│   ├── architecture/
+│   │   └── daemon-and-ipc.md
 │   ├── security/
-│   │   └── phase-3-boundaries.md
+│   │   └── security-model.md
 │   ├── testing/
 │   │   └── phase-3-testing.md
 │   └── manual-verification.md
@@ -119,14 +126,14 @@ openconnect-client/
 
 ## Build and Run
 
-### Building the Binary
+### Building the Binaries
 
 ```bash
-# Build to build/occlient
+# Build the CLI and daemon
 ./run.ysh build
 
 # Output:
-# ✓ Built: build/occlient
+# ✓ Built: build/occlient and build/occlientd
 ```
 
 ### Running the Binary
@@ -139,10 +146,8 @@ openconnect-client/
 # Run version
 ./build/occlient --version
 
-# Test connection (no real VPN; uses test fake)
-./build/occlient connect --server vpn.example.com
-# Output: Connecting to vpn.example.com (anyconnect)...
-#         [Process "runs" for ~500ms with FakeRunner, then exits]
+# The connect command runs the real OpenConnect executable.
+# Use unit tests for fake-process verification without a VPN.
 ```
 
 ### Live Development Workflow
@@ -166,28 +171,28 @@ done
 
 ```bash
 # Run all tests (41 tests, ~1.6s)
-./run.ysh unit-test
+./run.ysh unit test
 ```
 
 ### Detailed Testing
 
 ```bash
 # Run specific package
-go test ./internal/vpn -v
-go test ./internal/app -v
-go test ./cmd/occlient -v
+./run.ysh unit test -- ./internal/vpn
+./run.ysh unit test -- ./internal/app
+./run.ysh unit test -- ./cmd/occlient
 
 # Run specific test
-go test ./internal/vpn -run TestGoroutineCleanup -v
+./run.ysh unit test -- ./internal/vpn -run TestGoroutineCleanup
 
 # Run with race detector (slower, finds concurrency bugs)
-go test ./... -race
+./run.ysh unit test --race
 
 # Run multiple times (finds flakiness)
-go test ./... -count=5
+./run.ysh unit test --count 5
 
 # Generate coverage report
-go test ./... -coverprofile=coverage.out
+./run.ysh unit test -- ./... -coverprofile=coverage.out
 go tool cover -html=coverage.out
 # Open coverage.html in browser
 ```
@@ -198,7 +203,8 @@ go tool cover -html=coverage.out
 - `*_test.go` files contain tests for each package
 - Tests use fake implementations (no real processes, network, or credentials)
 
-**Coverage target:** 75% minimum (enforced by CI)
+**Coverage target:** 75% minimum. CI currently runs tests without enforcing a
+coverage threshold.
 
 **Test categories:**
 - **Unit tests:** Individual functions and components
@@ -286,7 +292,7 @@ Disconnecting       Failed
 ./run.ysh lint
 
 # 4. Run tests
-./run.ysh unit-test
+./run.ysh unit test
 
 # 5. Build and test binary
 ./run.ysh build
@@ -303,7 +309,7 @@ git push origin feat/my-feature
 # (pre-push hook runs: full test suite, govulncheck)
 
 # 8. Create pull request on GitHub
-# (GitHub Actions CI runs: format, lint, test, coverage, build)
+# (GitHub Actions CI runs: format, lint, test, vulnerability scan, build)
 
 # 9. Merge after review
 ```
@@ -325,11 +331,6 @@ Example:
   error message and usage help.
 ```
 
-**Include trailer:**
-```
-Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
-```
-
 ---
 
 ## Debugging
@@ -341,14 +342,14 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
 fmt.Fprintf(os.Stderr, "DEBUG: state=%v, err=%v\n", e.state, err)
 
 // Run with output
-go test ./internal/vpn -run TestXxx -v
+./run.ysh unit test -- ./internal/vpn -run TestXxx
 ```
 
 ### Race Detector
 
 ```bash
 # Compile with race detection
-go test ./... -race
+./run.ysh unit test --race
 
 # Output shows:
 # WARNING: DATA RACE
@@ -376,13 +377,13 @@ dlv test ./internal/vpn
 
 ```bash
 # CPU profile
-go test ./internal/vpn -cpuprofile=cpu.prof
+./run.ysh unit test -- ./internal/vpn -cpuprofile=cpu.prof
 go tool pprof cpu.prof
 # (pprof) top
 # (pprof) list Engine.Connect
 
 # Memory profile
-go test ./internal/vpn -memprofile=mem.prof
+./run.ysh unit test -- ./internal/vpn -memprofile=mem.prof
 go tool pprof mem.prof
 # (pprof) top
 # (pprof) list monitorProcess
@@ -433,9 +434,9 @@ go vet ./...
 
 **Solution:**
 ```bash
-./run.ysh unit-test
+./run.ysh unit test
 # Review failures and fix code
-go test ./internal/vpn -run TestXxx -v  # Debug specific test
+./run.ysh unit test -- ./internal/vpn -run TestXxx  # Debug specific test
 ```
 
 ### "openconnect not found"
@@ -527,7 +528,8 @@ if info, err := os.Stat(path); err != nil || info.IsDir() {
 
 **Documentation:**
 - [CONTRIBUTING.md](../CONTRIBUTING.md) — Contributor guide
-- [docs/security/phase-3-boundaries.md](../docs/security/phase-3-boundaries.md) — Security model
+- [docs/architecture/daemon-and-ipc.md](../docs/architecture/daemon-and-ipc.md) — Daemon and IPC design
+- [docs/security/security-model.md](../docs/security/security-model.md) — Security model
 - [docs/testing/phase-3-testing.md](../docs/testing/phase-3-testing.md) — Test strategy
 - [docs/plans/phase-3-vpn-engine.md](../docs/plans/phase-3-vpn-engine.md) — Phase 3 tasks
 
@@ -543,7 +545,7 @@ if info, err := os.Stat(path); err != nil || info.IsDir() {
 
 After completing development:
 
-1. Run full test suite: `./run.ysh unit-test`
+1. Run full test suite: `./run.ysh unit test`
 2. Check linting: `./run.ysh lint`
 3. Verify git hooks configured: `git config core.hooksPath`
 4. Commit and push: `git commit` → `git push`

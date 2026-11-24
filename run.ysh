@@ -56,14 +56,15 @@ proc editor {
 }
 
 ## usage: ./run.ysh build
-## summary: Build the occlient CLI to build/occlient
+## summary: Build the CLI and daemon in build/
 ## description:
-## Compiles cmd/occlient to a standalone executable in build/occlient.
+## Compiles cmd/occlient and cmd/occlientd into build/.
 proc build {
 	_require_project_environment
 	mkdir -p build
 	go build -o build/occlient ./cmd/occlient
-	printf '\e[1;32m✓\e[0m Built: build/occlient\n'
+	go build -o build/occlientd ./cmd/occlientd
+	printf '\e[1;32m✓\e[0m Built: build/occlient and build/occlientd\n'
 }
 
 ## usage: ./run.ysh run [ARG...]
@@ -81,13 +82,67 @@ proc run {
 	./build/occlient @ARGV
 }
 
-## usage: ./run.ysh unit-test
+proc _unit-test {
+	_require_project_environment
+	var args = ARGV
+	var options = []
+	var targets = ['./...']
+	while (len(args) > 0) {
+		var arg = args[0]
+		setvar args = args[1:]
+		case $arg in
+			(-r|--race)
+				call options->append('-race')
+				;;
+			(-c|--count)
+				if (len(args) === 0) {
+					_err "$arg requires a positive count"
+				}
+				var count = args[0]
+				setvar args = args[1:]
+				case $count in
+					(''|0*|*[!0-9]*) _err "$arg requires a positive integer without leading zeros" ;;
+				esac
+				call options->append("-count=$count")
+				;;
+			(--)
+				if (len(args) > 0) {
+					setvar targets = args
+				}
+				break
+				;;
+			(*) _err "Unknown unit test option: $arg" ;;
+		esac
+	}
+	go test -v -cover @options @targets
+}
+
+## usage: ./run.ysh unit test [-r|--race] [-c|--count N] [-- GO_TEST_ARGS...]
 ## summary: Run all unit tests with coverage
 ## description:
-## Executes go test ./... with verbose output and coverage reporting.
+## Run verbose tests with coverage. Arguments after -- replace the default
+## ./... target and are forwarded to Go, including package and test flags.
+## options:
+## -r, --race       Enable the race detector.
+## -c, --count N    Run each test N times (positive integer).
+proc unit {
+	if (len(ARGV) === 0 or ARGV[0] !== 'test') {
+		_err "Usage: ./run.ysh unit test [-r|--race] [-c|--count N] [-- GO_TEST_ARGS...]"
+	}
+	var args = ARGV[1:]
+	if (len(args) === 1 and (args[0] === '--help' or args[0] === '-h')) {
+		_print-task-help 'unit'
+		return
+	}
+	_unit-test @args
+}
+
+## usage: ./run.ysh unit-test [-r|--race] [-c|--count N] [-- GO_TEST_ARGS...]
+## summary: Alias for unit test
+## description:
+## Accepts the same options and forwarded arguments as ./run.ysh unit test.
 proc unit-test {
-	_require_project_environment
-	go test ./... -v -cover
+	_unit-test @ARGV
 }
 
 ## usage: ./run.ysh fmt

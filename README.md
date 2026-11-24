@@ -1,61 +1,28 @@
 # OpenConnect Client
 
-OpenConnect Client is a Linux VPN desktop application project. It provides a safe,
-testable interface to the OpenConnect VPN engine. Future phases will add enterprise
-authentication flows (SAML/SSO, MFA), background daemon capabilities, and desktop UI.
+OpenConnect Client is an early-stage Linux command-line application for managing
+connections through the OpenConnect executable. The current CLI supports
+foreground connections. The CLI also supports an experimental background
+daemon with administrator-controlled connection policy; service installation
+is manual.
 
-## Current Phase
+The client passes OpenConnect arguments without shell interpolation and does not
+collect or persist credentials.
 
-**Phase 3 (VPN Engine):** Fully functional OpenConnect process integration with safe
-argument passing, state management, and CLI controls. Single-connection foreground mode.
+## Requirements
 
-**Previous phases:**
-- Phase 2: Go CLI foundation with testing infrastructure
-- Phase 1: Reproducible development environment (GNU Guix)
+- Linux
+- GNU Guix for the project development environment
+- OpenConnect installed on the host and discoverable through `PATH`, a common
+  system location, or `OPENCONNECT_PATH`
 
-## Features
-
-### Phase 3 (Current)
-
-✅ **VPN Engine**
-- Safe OpenConnect process management (no shell injection)
-- State machine (Disconnected → Connecting → Connected → Disconnecting)
-- Graceful shutdown on Ctrl+C
-- Unexpected disconnection detection
-- 41 unit tests (81.8% coverage)
-
-✅ **CLI Interface**
-- `occlient connect --server vpn.example.com --protocol anyconnect`
-- Flag support: `--server`, `--protocol`, `--ca-cert`, `--script`
-- Proper error codes (0=success, 1=runtime error, 2=usage error)
-- Help output: `occlient -h`, `occlient connect -h`
-
-✅ **Quality Assurance**
-- Comprehensive test suite (no real network/credentials needed)
-- Argument injection safety verified
-- Security boundary documentation
-- Git hooks for local quality gates
-- GitHub Actions CI/CD (automated testing on every PR)
-
-### Planned (Phase 4+)
-
-🔄 **Daemon Architecture:** Background VPN manager with privilege separation
-🔄 **Credentials/Auth:** Secure credential storage and browser-based SSO
-🔄 **Desktop UI:** Graphical interface (Wails, React/TypeScript)
-🔄 **Persistence:** Connection profiles, state recovery
-
-### Out of Scope (Phase 3)
-
-❌ GUI, desktop UI, or tray icon
-❌ Background daemon or persistent connections
-❌ Credentials or password handling
-❌ SAML/SSO/MFA flows
-❌ Privilege escalation (setuid, sudo, polkit)
-❌ Automatic routing or DNS management
+The project shell provides development tools; it does not install OpenConnect or
+grant VPN network privileges.
 
 ## Quick Start
 
-**Prerequisites:** Linux system with Git. Guix and OpenConnect are managed by the project environment.
+**Prerequisites:** Linux, Git, GNU Guix, and an OpenConnect executable available
+on the host.
 
 ```bash
 # Clone and enter project shell
@@ -67,7 +34,7 @@ cd openconnect-client
 **Inside the project shell:**
 
 ```bash
-# Build the binary
+# Build the CLI and daemon
 ./run.ysh build
 
 # Test the binary
@@ -76,7 +43,7 @@ cd openconnect-client
 ./build/occlient connect -h
 
 # Run tests
-./run.ysh unit-test
+./run.ysh unit test
 
 # Format and lint
 ./run.ysh fmt
@@ -115,9 +82,21 @@ exit
 
 **Supported protocols:** anyconnect, nc, gp, pulse, f5, fortinet, array
 
-**Interactive prompts:** OpenConnect will prompt for credentials/MFA directly (not handled by occlient in Phase 3)
+The CLI does not collect credentials or provide interactive authentication. Its
+OpenConnect process receives `/dev/null` as standard input, so it cannot answer
+interactive prompts.
 
-**Disconnect:** Press Ctrl+C to gracefully disconnect
+**Disconnect:** Press Ctrl+C to stop the foreground connection.
+
+### Daemon commands
+
+The CLI can send `connect --background --server vpn.example.com`, `status`,
+and `disconnect` to the daemon. A background request does not fall back to
+foreground mode or elevate privileges. The daemon accepts root and members of
+an administrator-managed group, and denies connections unless an exact
+configuration is approved. A `connecting` state does not confirm tunnel
+readiness. See the [systemd guide](docs/systemd.md) for setup and troubleshooting
+and [manual verification](docs/manual-verification.md) for test limitations.
 
 ### Environment Variables
 
@@ -153,17 +132,21 @@ export OPENCONNECT_PATH=/custom/path/to/openconnect
 
 **Build and Run:**
 ```bash
-./run.ysh build          # Compile binary to build/occlient
+./run.ysh build          # Compile build/occlient and build/occlientd
 ./run.ysh run --version  # Run binary with arguments
 ```
 
 **Testing:**
 ```bash
-./run.ysh unit-test      # Run all tests with coverage
-go test ./...            # Raw go test
-go test ./... -race      # With race detector
-go test ./... -count=5   # Run multiple times
+./run.ysh unit test                 # Run all tests with coverage
+./run.ysh unit test --race          # With race detector
+./run.ysh unit test --count 5       # Run multiple times
+./run.ysh unit test -- ./internal/vpn -run TestName  # Select a test
 ```
+
+Use `-r` for `--race` and `-c N` for `--count N`. Arguments after `--`
+replace the default `./...` target and are forwarded to Go. The existing
+`./run.ysh unit-test` command remains an alias.
 
 **Code Quality:**
 ```bash
@@ -179,40 +162,14 @@ go test ./... -count=5   # Run multiple times
 ./run.ysh editor         # Use VISUAL or EDITOR
 ```
 
-### Documentation and Links
+## Documentation
 
-**Getting Started:**
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** — Contributor guide, git hooks, code style, testing
-- **[docs/development.md](docs/development.md)** — Developer workflow and architecture
-
-**Architecture & Design:**
-- **[docs/plans/phase-3-vpn-engine.md](docs/plans/phase-3-vpn-engine.md)** — Phase 3 tasks and progress
-- **[docs/security/phase-3-boundaries.md](docs/security/phase-3-boundaries.md)** — Security model and threat analysis
-
-**Testing & Quality:**
-- **[docs/testing/phase-3-testing.md](docs/testing/phase-3-testing.md)** — Test suite (41 tests, 81.8% coverage)
-- **[docs/manual-verification.md](docs/manual-verification.md)** — Manual testing procedures
-
-**Previous Phases:**
-- **[docs/plans/phase-1-dev-environment.md](docs/plans/phase-1-dev-environment.md)** — Guix environment setup
-- **[docs/plans/phase-2-go-foundation.md](docs/plans/phase-2-go-foundation.md)** — Go CLI foundation
-
----
-
-## System Requirements
-
-**Supported:**
-- Linux (Ubuntu 20.04+, Debian 11+, Fedora 35+, or similar)
-- x86_64 architecture
-
-**Not Supported (Phase 3):**
-- Windows (not tested; WSL2 possible but unvalidated)
-- macOS (not tested; needs Linux VM/remote host)
-
-**Prerequisites:**
-- Git
-- Guix (provided by `./scripts/shell.sh`)
-- OpenConnect binary (installed on host or via `apt-get install openconnect`)
+- [Contributing](CONTRIBUTING.md)
+- [Development guide](docs/development.md)
+- [Experimental systemd service](docs/systemd.md)
+- [Architecture](docs/architecture/daemon-and-ipc.md)
+- [Security model](docs/security/security-model.md)
+- [Manual verification](docs/manual-verification.md)
 
 ---
 
@@ -263,13 +220,13 @@ git config core.hooksPath
 **Solution:**
 ```bash
 # Run tests multiple times
-go test ./... -count=10
+./run.ysh unit test --count 10
 
 # Run with race detector
-go test ./... -race
+./run.ysh unit test --race
 
-# Run with verbose output
-go test ./... -v -race
+# Run one package with the race detector
+./run.ysh unit test --race -- ./internal/vpn
 ```
 
 ## License

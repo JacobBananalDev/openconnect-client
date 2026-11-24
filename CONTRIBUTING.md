@@ -63,7 +63,7 @@ This command:
 ./build/occlient --help
 
 # Run all tests
-./run.ysh unit-test
+./run.ysh unit test
 
 # Format code
 ./run.ysh fmt
@@ -120,7 +120,7 @@ git commit --no-verify
 
 Runs **before pushing to remote**. Checks:
 
-- ✅ Full test suite (`go test ./...`)
+- ✅ Full test suite
 - ✅ Security vulnerabilities (`govulncheck`)
 
 **If pre-push fails:**
@@ -146,7 +146,7 @@ git push --no-verify
 
 ### Branch Naming
 
-- **For Phase 3:** All work should be on `feat/openconnect-vpn-engine`
+- **For features:** Use `feat/description`
 - **For bug fixes:** Use `fix/description`
 - **For documentation:** Use `docs/description`
 - **For refactoring:** Use `refactor/description`
@@ -169,23 +169,22 @@ Example:
   error message and usage help.
 ```
 
-**Include trailer:**
-```
-Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
-```
-
 ### Code Organization
 
 ```
 openconnect-client/
 ├── cmd/
-│   └── occlient/
-│       ├── main.go              # CLI entry point
-│       └── main_test.go
+│   ├── occlient/
+│   │   ├── main.go              # CLI entry point
+│   │   └── main_test.go
+│   └── occlientd/
+│       └── main.go              # Daemon entry point
 ├── internal/
 │   ├── app/
 │   │   ├── cli.go               # CLI handler
 │   │   └── cli_test.go
+│   ├── daemon/                  # Daemon lifecycle
+│   ├── ipc/                     # Unix socket protocol and transport
 │   └── vpn/
 │       ├── types.go             # Core types and interfaces
 │       ├── engine.go            # VPN engine controller
@@ -194,8 +193,11 @@ openconnect-client/
 │       ├── process_test.go
 │       └── fake.go              # Test fake implementation
 ├── docs/
-│   ├── plans/                   # Phase plans
-│   ├── security/                # Security documentation
+│   ├── architecture/
+│   │   └── daemon-and-ipc.md
+│   ├── plans/                   # Project plans and task checklists
+│   ├── security/
+│   │   └── security-model.md
 │   └── testing/                 # Testing strategy
 └── run.ysh                       # Build/test entry point
 ```
@@ -249,22 +251,22 @@ exec.Command("bash", "-c", fmt.Sprintf("openconnect %s", serverURL))
 
 ```bash
 # All tests with output
-./run.ysh unit-test
+./run.ysh unit test
 
 # Specific package
-go test ./internal/vpn -v
+./run.ysh unit test -- ./internal/vpn
 
 # Specific test
-go test ./internal/vpn -run TestGoroutineCleanup -v
+./run.ysh unit test -- ./internal/vpn -run TestGoroutineCleanup
 
 # With race detection
-go test ./... -race
+./run.ysh unit test --race
 
 # Multiple runs (detect flakiness)
-go test ./... -count=5
+./run.ysh unit test --count 5
 
 # Coverage report
-go test ./... -coverprofile=coverage.out
+./run.ysh unit test -- ./... -coverprofile=coverage.out
 go tool cover -html=coverage.out
 ```
 
@@ -279,7 +281,7 @@ go tool cover -html=coverage.out
 
 ### Coverage Expectations
 
-- **Minimum:** 75% (enforced by CI)
+- **Guideline minimum:** 75%; CI currently does not enforce a coverage threshold.
 - **Target:** 80%+
 - **Focus on:** Public APIs, error paths, state machine transitions
 
@@ -316,7 +318,7 @@ go tool cover -html=coverage.out
 Before submitting a PR, ensure:
 
 - [ ] Code formatted: `./run.ysh fmt`
-- [ ] Tests pass: `./run.ysh unit-test`
+- [ ] Tests pass: `./run.ysh unit test`
 - [ ] Linting passes: `./run.ysh lint`
 - [ ] Security scan passes: `./run.ysh vuln`
 - [ ] No hardcoded secrets or credentials
@@ -359,7 +361,8 @@ go.sum               # Go dependency hashes
 | `go.mod` | Go module declaration |
 | `.github/workflows/ci.yml` | GitHub Actions CI pipeline |
 | `.githooks/pre-commit` | Local commit validation |
-| `docs/security/phase-3-boundaries.md` | Security model and threat analysis |
+| `docs/architecture/daemon-and-ipc.md` | Daemon and IPC design |
+| `docs/security/security-model.md` | Current security boundaries and limitations |
 | `docs/testing/phase-3-testing.md` | Testing strategy and coverage |
 
 ---
@@ -371,7 +374,7 @@ go.sum               # Go dependency hashes
 1. Create directory under `internal/` with public types
 2. Create `*_test.go` file with comprehensive tests
 3. Update documentation if public API
-4. Ensure tests pass: `go test ./...`
+4. Ensure tests pass: `./run.ysh unit test`
 
 ### Add a New CLI Flag
 
@@ -385,12 +388,12 @@ go.sum               # Go dependency hashes
 
 1. Write a **failing test** that reproduces the bug
 2. Fix the code to make the test pass
-3. Ensure no other tests break: `go test ./...`
+3. Ensure no other tests break: `./run.ysh unit test`
 4. Document the fix in commit message
 
 ### Improve Performance
 
-1. Add benchmarks: `go test -bench=. ./package`
+1. Add benchmarks: `./run.ysh unit test -- ./package -bench=.`
 2. Profile with pprof if needed
 3. Measure improvement before/after
 4. Keep tests deterministic (no timing-based assertions)
@@ -400,9 +403,9 @@ go.sum               # Go dependency hashes
 ## Questions?
 
 - **Documentation:** See `docs/` directory for detailed guides
-- **Architecture:** See `docs/plans/phase-3-vpn-engine.md`
+- **Architecture:** See `docs/architecture/daemon-and-ipc.md`
 - **Testing:** See `docs/testing/phase-3-testing.md`
-- **Security:** See `docs/security/phase-3-boundaries.md`
+- **Security:** See `docs/security/security-model.md`
 
 ---
 
