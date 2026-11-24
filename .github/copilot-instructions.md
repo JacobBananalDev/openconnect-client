@@ -15,8 +15,10 @@ License: Apache-2.0 (preserve existing license).
 4. After editing, show the relevant diff, explain decisions, and report validation commands with actual results. Identify anything untested.
 5. Ask whether the result looks correct or needs modification. **Wait for explicit approval before proceeding.**
 6. If changes are requested, revise the current task and present it again. Do not infer approval from silence.
-7. Never create/switch branches, commit, push, open/merge pull requests, change GitHub settings, install host dependencies, or use `sudo` without explicit approval. The user will manually create the Phase 1 branch.
-8. Do not begin Phase 2 without explicit approval.
+7. Never create/switch branches, commit, push, open/merge pull requests, change GitHub settings, install host dependencies, or use `sudo` without explicit approval. The user will manually create branches.
+8. Do not begin the next phase without explicit approval.
+9. **Do not automatically append Copilot or AI co-author attribution to Git commit messages.** (Attribution trailer is optional and user-controlled.)
+10. **Do not create commits, push changes, or create branches without explicit user approval.** Always ask before performing Git operations.
 
 ### Before each task
 
