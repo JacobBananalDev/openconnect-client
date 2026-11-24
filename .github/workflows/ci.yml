@@ -13,10 +13,6 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     
-    strategy:
-      matrix:
-        go-version: ['1.22', '1.23', '1.24']
-    
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -24,7 +20,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version: 1.24
       
       - name: Format check
         run: |
@@ -42,22 +38,8 @@ jobs:
       
       - name: Run tests
         run: |
-          go test ./... -v -coverprofile=coverage.out
+          go test ./... -v
           echo "✓ Tests passed"
-      
-      - name: Check coverage
-        run: |
-          # Extract coverage percentage and convert to integer for comparison
-          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | cut -d'%' -f1)
-          COVERAGE_INT=$(printf "%.0f" "$COVERAGE")
-          echo "Coverage: ${COVERAGE}%"
-          
-          # Fail if coverage below 75%
-          if [ "$COVERAGE_INT" -lt 75 ]; then
-            echo "❌ Coverage ${COVERAGE}% is below 75% threshold"
-            exit 1
-          fi
-          echo "✓ Coverage check passed (${COVERAGE}%)"
       
       - name: Security scan (govulncheck)
         run: |

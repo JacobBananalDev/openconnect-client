@@ -1,6 +1,6 @@
 #!/bin/bash
-# Pre-commit hook: format check, linting, and basic validation
-# Prevents commits with formatting issues or obvious mistakes
+# Pre-commit hook: format check, linting, tests, and security scan
+# Prevents commits with formatting issues, test failures, or vulnerabilities
 
 set -e
 
@@ -33,6 +33,20 @@ fi
 echo "Running linter (go vet)..."
 if ! go vet ./...; then
     echo "✗ Linting failed. Fix the errors above."
+    exit 1
+fi
+
+# Run all tests
+echo "Running tests..."
+if ! go test ./... -v; then
+    echo "✗ Tests failed. Fix failures before committing."
+    exit 1
+fi
+
+# Run security vulnerability check
+echo "Running security scan (govulncheck)..."
+if ! go run golang.org/x/vuln/cmd/govulncheck@latest ./...; then
+    echo "✗ Security vulnerabilities detected. Fix before committing."
     exit 1
 fi
 
