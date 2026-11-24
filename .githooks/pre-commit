@@ -38,7 +38,7 @@ fi
 
 # Run all tests
 echo "Running tests..."
-if ! go test ./... -v; then
+if ! go test ./...; then
     echo "✗ Tests failed. Fix failures before committing."
     exit 1
 fi
