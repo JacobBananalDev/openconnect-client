@@ -1,0 +1,23 @@
+[Unit]
+Description=OpenConnect Client background service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=openconnect-client
+RuntimeDirectory=openconnect-client
+RuntimeDirectoryMode=0750
+UMask=0077
+Environment=PATH=/usr/sbin:/usr/bin
+Environment=OPENCONNECT_PATH=
+ExecStart=/usr/local/sbin/occlientd
+Restart=on-failure
+RestartSec=5s
+KillMode=mixed
+TimeoutStopSec=10s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

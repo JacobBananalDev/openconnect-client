@@ -20,7 +20,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: 1.24
+          go-version-file: go.mod
       
       - name: Install OpenConnect
         run: |
@@ -52,15 +52,18 @@ jobs:
           go run golang.org/x/vuln/cmd/govulncheck@latest ./...
           echo "✓ Security scan passed"
       
-      - name: Build binary
+      - name: Build binaries
         run: |
           mkdir -p build
           go build -o build/occlient ./cmd/occlient
-          echo "✓ Binary built successfully"
+          go build -o build/occlientd ./cmd/occlientd
+          echo "✓ Binaries built successfully"
       
-      - name: Verify binary
+      - name: Verify binaries
         run: |
           ./build/occlient --version
           ./build/occlient -h | grep -q "Usage:"
           ./build/occlient connect -h | grep -q "Usage:"
+          test -x ./build/occlientd
+          go version -m ./build/occlientd | grep -Fq 'github.com/JacobBananalDev/openconnect-client/cmd/occlientd'
           echo "✓ Binary verification passed"

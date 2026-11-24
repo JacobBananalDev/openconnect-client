@@ -28,21 +28,21 @@ All tests use **fake process runners** (no real OpenConnect invocation, no netwo
 **Run all tests with coverage:**
 
 ```bash
-./run.ysh unit-test
+./run.ysh unit test
 ```
 
 **Run specific package:**
 
 ```bash
-go test ./internal/vpn -v
-go test ./internal/app -v
-go test ./cmd/occlient -v
+./run.ysh unit test -- ./internal/vpn
+./run.ysh unit test -- ./internal/app
+./run.ysh unit test -- ./cmd/occlient
 ```
 
 **Run specific test:**
 
 ```bash
-go test ./internal/vpn -run TestArgumentPassingIsSafe -v
+./run.ysh unit test -- ./internal/vpn -run TestArgumentPassingIsSafe
 ```
 
 ### Linting and Static Analysis
@@ -375,9 +375,9 @@ func TestArgumentPassingIsSafe(t *testing.T) {
 ### Typical Test Execution
 
 ```
-$ ./run.ysh unit-test
+$ ./run.ysh unit test
 
-[run.ysh calls: go test ./... -v -cover]
+[run.ysh runs all packages with verbose output and coverage]
 
 === RUN   TestStateTransitions
 === RUN   TestStateTransitions/connect_and_disconnect
@@ -495,7 +495,7 @@ ok  	github.com/JacobBananalDev/openconnect-client/internal/vpn	1.379s
 - name: Run tests
   run: |
     source ./scripts/shell.sh
-    ./run.ysh unit-test
+    ./run.ysh unit test
     ./run.ysh lint
     ./run.ysh vuln
 ```
@@ -507,14 +507,14 @@ ok  	github.com/JacobBananalDev/openconnect-client/internal/vpn	1.379s
 ```bash
 ./run.ysh fmt       # Format code
 ./run.ysh lint      # Check for mistakes
-./run.ysh unit-test # Verify tests pass
+./run.ysh unit test # Verify tests pass
 ```
 
 **After major changes:**
 
 ```bash
-go test ./... -race      # Detect race conditions
-go test ./... -count=5   # Run multiple times for flakiness
+./run.ysh unit test --race      # Detect race conditions
+./run.ysh unit test --count 5   # Run multiple times for flakiness
 ```
 
 ---
@@ -526,7 +526,7 @@ go test ./... -count=5   # Run multiple times for flakiness
 **Fuzz testing:**
 - Fuzz CLI argument parsing
 - Fuzz openconnect argument construction
-- Use `go test -fuzz` to find edge cases
+- Use `./run.ysh unit test -- ./package -fuzz FuzzName` to find edge cases
 
 **Integration testing:**
 - Real OpenConnect binary invocation (optional, requires real server)
@@ -555,7 +555,7 @@ go test ./... -count=5   # Run multiple times for flakiness
 
 ```bash
 # Kill hung tests after 30s
-timeout 30 go test ./internal/app -v
+timeout 30 ./run.ysh unit test -- ./internal/app
 ```
 
 ### Race Condition Detector
@@ -563,7 +563,7 @@ timeout 30 go test ./internal/app -v
 **Enable race detection:**
 
 ```bash
-go test ./... -race
+./run.ysh unit test --race
 ```
 
 Adds ~10x slowdown but detects subtle concurrency bugs.
@@ -573,7 +573,7 @@ Adds ~10x slowdown but detects subtle concurrency bugs.
 **Generate HTML coverage report:**
 
 ```bash
-go test ./... -coverprofile=coverage.out
+./run.ysh unit test -- ./... -coverprofile=coverage.out
 go tool cover -html=coverage.out -o coverage.html
 # Open coverage.html in browser
 ```
@@ -583,10 +583,10 @@ go tool cover -html=coverage.out -o coverage.html
 **Run single test with logging:**
 
 ```bash
-go test ./internal/vpn -run TestGoroutineCleanup -v -v
+./run.ysh unit test -- ./internal/vpn -run TestGoroutineCleanup
 ```
 
-Add `-v -v` for extra verbose output (if tests print debug info).
+The runner enables verbose output by default.
 
 ---
 

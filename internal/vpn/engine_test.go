@@ -3,7 +3,12 @@ package vpn
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
 	"runtime"
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -46,8 +51,8 @@ func TestStateTransitions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			runner := &FakeRunner{}
-			e := NewEngine(runner)
+			process := &controlledProcess{exit: make(chan struct{}), signals: make(chan os.Signal, 2), finishOnTerm: true}
+			e := NewEngine(controlledRunner{process})
 
 			if err := tt.operations(e); err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -62,8 +67,13 @@ func TestStateTransitions(t *testing.T) {
 
 // TestDuplicateConnectRejected verifies that duplicate Connect calls are rejected.
 func TestDuplicateConnectRejected(t *testing.T) {
-	runner := &FakeRunner{}
-	e := NewEngine(runner)
+	process := &controlledProcess{exit: make(chan struct{}), signals: make(chan os.Signal, 2), finishOnTerm: true}
+	e := NewEngine(controlledRunner{process})
+	t.Cleanup(func() {
+		if err := e.Disconnect(context.Background()); err != nil {
+			t.Errorf("cleanup disconnect: %v", err)
+		}
+	})
 
 	config := ConnectionConfig{
 		ServerURL: "vpn.example.com",
@@ -173,8 +183,134 @@ func TestDisconnectTimeout(t *testing.T) {
 		t.Error("Disconnect should have timed out")
 	}
 
+	if got := e.State(); got != StateDisconnecting {
+		t.Errorf("state after timeout: got %v, want StateDisconnecting", got)
+	}
+	<-e.done
 	if got := e.State(); got != StateDisconnected {
-		t.Errorf("state after timeout: got %v, want StateDisconnected", got)
+		t.Errorf("state after process exit: got %v, want StateDisconnected", got)
+	}
+}
+
+type controlledRunner struct{ process *controlledProcess }
+
+func (r controlledRunner) StartCommand(context.Context, string, []string) (Process, error) {
+	return r.process, nil
+}
+
+type controlledProcess struct {
+	exit         chan struct{}
+	signals      chan os.Signal
+	waits        atomic.Int32
+	once         sync.Once
+	finishOnTerm bool
+}
+
+func (p *controlledProcess) Wait() error {
+	p.waits.Add(1)
+	<-p.exit
+	return nil
+}
+
+func (p *controlledProcess) Signal(signal os.Signal) error {
+	p.signals <- signal
+	if signal == syscall.SIGTERM && p.finishOnTerm {
+		p.once.Do(func() { close(p.exit) })
+	}
+	return nil
+}
+
+func (p *controlledProcess) PID() int { return 1 }
+
+func TestDisconnectOwnsSingleWaitAndBlocksReconnectUntilReaped(t *testing.T) {
+	process := &controlledProcess{exit: make(chan struct{}), signals: make(chan os.Signal, 2)}
+	engine := NewEngine(controlledRunner{process})
+	config := ConnectionConfig{ServerURL: "vpn.example.com", Protocol: "anyconnect"}
+	if err := engine.Connect(context.Background(), config); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := engine.Disconnect(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Disconnect error = %v, want context cancellation", err)
+	}
+	if signal := <-process.signals; signal != syscall.SIGTERM {
+		t.Fatalf("first signal = %v, want SIGTERM", signal)
+	}
+	if signal := <-process.signals; signal != os.Kill {
+		t.Fatalf("second signal = %v, want SIGKILL", signal)
+	}
+	if err := engine.Connect(context.Background(), config); !errors.Is(err, ErrAlreadyConnecting) {
+		t.Fatalf("Connect during disconnect = %v, want ErrAlreadyConnecting", err)
+	}
+	close(process.exit)
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := engine.Disconnect(ctx); err != nil {
+		t.Fatalf("wait for disconnect: %v", err)
+	}
+	if got := engine.State(); got != StateDisconnected {
+		t.Fatalf("state = %v, want disconnected", got)
+	}
+	if got := process.waits.Load(); got != 1 {
+		t.Fatalf("Wait called %d times, want once", got)
+	}
+}
+
+func TestUnexpectedProcessExitMarksFailed(t *testing.T) {
+	process := &controlledProcess{exit: make(chan struct{}), signals: make(chan os.Signal, 1)}
+	engine := NewEngine(controlledRunner{process})
+	if err := engine.Connect(context.Background(), ConnectionConfig{ServerURL: "vpn.example.com", Protocol: "anyconnect"}); err != nil {
+		t.Fatal(err)
+	}
+	close(process.exit)
+	select {
+	case <-engine.done:
+	case <-time.After(time.Second):
+		t.Fatal("process monitor did not finish")
+	}
+	if got := engine.State(); got != StateFailed {
+		t.Fatalf("state = %v, want failed", got)
+	}
+}
+
+type subprocessRunner struct{}
+
+func (subprocessRunner) StartCommand(ctx context.Context, _ string, _ []string) (Process, error) {
+	stdin, err := os.Open(os.DevNull)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestDisconnectSubprocess$")
+	cmd.Env = append(os.Environ(), "OCCLIENT_TEST_SUBPROCESS=1")
+	cmd.Stdin = stdin
+	if err := cmd.Start(); err != nil {
+		stdin.Close()
+		return nil, err
+	}
+	return &ExecProcess{cmd: cmd, stdin: stdin}, nil
+}
+
+func TestDisconnectSubprocess(t *testing.T) {
+	if os.Getenv("OCCLIENT_TEST_SUBPROCESS") != "1" {
+		return
+	}
+	time.Sleep(30 * time.Second)
+}
+
+func TestRealProcessIsReapedOnDisconnect(t *testing.T) {
+	engine := NewEngine(subprocessRunner{})
+	if err := engine.Connect(context.Background(), ConnectionConfig{ServerURL: "vpn.example.com", Protocol: "anyconnect"}); err != nil {
+		t.Fatal(err)
+	}
+	pid := engine.process.PID()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := engine.Disconnect(ctx); err != nil {
+		t.Fatalf("disconnect real process: %v", err)
+	}
+	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Fatalf("process %d still exists after disconnect: %v", pid, err)
 	}
 }
 

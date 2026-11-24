@@ -71,3 +71,21 @@ func TestConnectCommandExists(t *testing.T) {
 		t.Errorf("error output should mention --server is required; got: %s", errOut)
 	}
 }
+
+func TestDaemonCommandsDoNotResolveOpenConnectForHelpOrValidation(t *testing.T) {
+	t.Setenv("OPENCONNECT_PATH", "/nonexistent/openconnect")
+	for _, tt := range []struct {
+		args []string
+		code int
+	}{
+		{[]string{"connect", "--background"}, 2},
+		{[]string{"connect", "--help"}, 0},
+		{[]string{"status", "--help"}, 0},
+		{[]string{"disconnect", "--help"}, 0},
+	} {
+		var stdout, stderr bytes.Buffer
+		if got := Run(tt.args, &stdout, &stderr); got != tt.code {
+			t.Errorf("Run(%v) = %d, want %d; stderr = %q", tt.args, got, tt.code, stderr.String())
+		}
+	}
+}
