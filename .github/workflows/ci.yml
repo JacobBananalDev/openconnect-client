@@ -165,5 +165,13 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install native package metadata
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev \
+            pkg-config
+
       - name: Scan Go dependencies and code
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
