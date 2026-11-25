@@ -34,7 +34,7 @@ cd openconnect-client
 **Inside the project shell:**
 
 ```bash
-# Build the CLI and daemon
+# Build the CLI, daemon and desktop GUI
 ./run.ysh build
 
 # Test the binary
@@ -52,6 +52,32 @@ cd openconnect-client
 # Launch your editor (VS Code or Codium)
 ./run.ysh penv code .
 ```
+
+The build installs lockfile-pinned frontend dependencies into the project with
+Guix-provided npm. Once the environment check passes and the build lock is
+acquired, it removes the previous three binaries; if the build fails, run it
+again before using them. Existing binaries may be stale if the environment
+check or lock acquisition fails. Rebuild after source changes or branch
+switches. For Go builds, the task clears inherited `GOROOT`, `CGO_CFLAGS`,
+`CGO_CPPFLAGS`, `CGO_CXXFLAGS` and `CGO_LDFLAGS`, and uses the project
+environment's GCC/G++ and local Go toolchain.
+If an interrupted build leaves `build/.build-lock` behind, remove that empty
+directory only after confirming no build is running.
+
+For desktop development, run `./run.ysh dev` as an unprivileged user with a
+graphical display. It installs the matching Wails CLI in `build/tools/` if
+needed, installs frontend dependencies locally with `npm ci`, and launches
+Vite on `127.0.0.1:9245`. Frontend edits hot reload; Go edits rebuild and restart
+the development GUI. Stop it with Ctrl+C. After changing bound Go methods,
+regenerate the TypeScript bindings with the project-local Wails CLI:
+
+```bash
+./build/tools/wails3 generate bindings -ts -i -d internal/gui/frontend/bindings ./cmd/occlient-gui
+```
+
+Development mode prevents concurrent builds while it is running. If an
+interrupted session leaves `build/.dev-lock` behind, remove that empty directory
+only after confirming no development session is running.
 
 **Exit the project shell:**
 ```bash
@@ -132,9 +158,28 @@ export OPENCONNECT_PATH=/custom/path/to/openconnect
 
 **Build and Run:**
 ```bash
-./run.ysh build          # Compile build/occlient and build/occlientd
-./run.ysh run --version  # Run binary with arguments
+./run.ysh build          # Compile build/occlient, build/occlientd and build/occlient-gui
+./run.ysh run            # Launch the desktop GUI as an unprivileged user
+./run.ysh run --version  # Display the CLI version
+./run.ysh run --help     # Show run selectors without requiring a build
+./run.ysh run -c --server vpn.example.com --background
+./run.ysh run -s         # Check daemon connection state
+./run.ysh run -d         # Disconnect the daemon connection
 ```
+
+Select one operation first; a second selector immediately following it is
+rejected. Other arguments are passed to the target unchanged. An optional `--`
+immediately after the selector ends wrapper parsing and is removed; use a
+second `--` to forward one to the target. Existing CLI subcommands such as
+`./run.ysh run connect --help` remain available. Run `./run.ysh build` first;
+the run task never builds or elevates privileges. A build in progress or a stale
+build lock prevents launching.
+
+The GUI launch canonicalizes `GUIX_LOCPATH` entries for WebKitGTK without
+disabling its sandbox. The `--daemon` selector starts the existing daemon
+directly; it does not grant privileges or set up its required group, trusted
+paths, socket directory or policy. Foreground CLI connections remain the
+default; `--background` requests a connection through the daemon.
 
 **Testing:**
 ```bash

@@ -1,0 +1,28 @@
+version: '3'
+dev_mode:
+  root_path: .
+  log_level: info
+  debounce: 1000
+  ignore:
+    dir:
+      - .git
+      - build
+      - node_modules
+      - frontend
+    file:
+      - "*_test.go"
+    watched_extension:
+      - "*.go"
+    git_ignore: true
+  executes:
+    - cmd: go build -o build/dev/occlient-gui ./cmd/occlient-gui
+      type: blocking
+    - cmd: npm --prefix internal/gui/frontend run dev
+      type: background
+      exit_policy: fail
+      readiness:
+        tcp: "127.0.0.1:9245"
+        timeout: "60s"
+    - cmd: ./build/dev/occlient-gui
+      type: primary
+      exit_policy: shutdown

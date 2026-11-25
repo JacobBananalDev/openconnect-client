@@ -29,6 +29,10 @@ go.work.sum
 # Build output
 build/
 
+# GUI development artifacts
+/internal/gui/frontend/node_modules/
+/internal/gui/web/dist/
+
 # env file
 .env
 

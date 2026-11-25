@@ -56,11 +56,17 @@ This command:
 ### Quick Build and Test
 
 ```bash
-# Build the binary
+# Build the CLI, daemon and desktop GUI
 ./run.ysh build
 
 # Run the binary
 ./build/occlient --help
+
+# Launch the desktop GUI
+./run.ysh run
+
+# Run the GUI with development reloads
+./run.ysh dev
 
 # Run all tests
 ./run.ysh unit test
@@ -74,6 +80,15 @@ This command:
 # Run security scan
 ./run.ysh vuln
 ```
+
+The build uses Guix-provided npm to install locked dependencies locally and
+replaces all three binaries. Rebuild after source changes or branch switches;
+after any failed build, run it again before using the binaries. See the
+[build notes](README.md#quick-start) for compiler settings and lock cleanup.
+See the [run commands](README.md#available-commands) for CLI and daemon
+selectors and their privilege requirements.
+Development mode uses local Wails/Vite tools and cannot run concurrently with a
+build; see the [development notes](README.md#quick-start).
 
 ---
 
