@@ -68,8 +68,12 @@ if ! pkg-config --exists gtk4 webkitgtk-6.0; then
 	exit 1
 fi
 
+libgcc_file=$(readlink -f "$(gcc -print-file-name=libgcc_s.so.1)")
+libgcc_dir=$(dirname "$libgcc_file")
+export LD_LIBRARY_PATH="$libgcc_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
 unset GOROOT
-export CC=gcc CXX=g++ CGO_CFLAGS= CGO_CPPFLAGS= CGO_CXXFLAGS= CGO_LDFLAGS= CGO_ENABLED=1 GOTOOLCHAIN=local
+export CC=gcc CXX=g++ CGO_CFLAGS= CGO_CPPFLAGS= CGO_CXXFLAGS= CGO_LDFLAGS= CGO_ENABLED=1 GOTOOLCHAIN=auto
 version=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)
 if [[ -z $version ]]; then
 	echo 'Error: unable to determine the Wails module version from go.mod.' >&2

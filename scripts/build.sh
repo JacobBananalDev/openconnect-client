@@ -61,6 +61,10 @@ if ! pkg-config --exists gtk4 webkitgtk-6.0; then
 	exit 1
 fi
 
+libgcc_file=$(readlink -f "$(gcc -print-file-name=libgcc_s.so.1)")
+libgcc_dir=$(dirname "$libgcc_file")
+export LD_LIBRARY_PATH="$libgcc_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
 (
 	cd internal/gui/frontend
 	npm ci
@@ -76,7 +80,7 @@ for name in occlient occlientd occlient-gui; do
 	if [[ $name == occlient-gui ]]; then
 		tags=(-tags production)
 	fi
-	env -u GOROOT CC=gcc CXX=g++ CGO_CFLAGS= CGO_CPPFLAGS= CGO_CXXFLAGS= CGO_LDFLAGS= CGO_ENABLED=1 GOTOOLCHAIN=local \
+	env -u GOROOT CC=gcc CXX=g++ CGO_CFLAGS= CGO_CPPFLAGS= CGO_CXXFLAGS= CGO_LDFLAGS= CGO_ENABLED=1 GOTOOLCHAIN=auto \
 		go build "${tags[@]}" -o "$stage/$name" "./cmd/$name"
 	if [[ ! -f $stage/$name || ! -x $stage/$name ]]; then
 		echo "Error: build did not produce an executable $name." >&2

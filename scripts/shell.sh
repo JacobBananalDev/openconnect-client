@@ -35,4 +35,9 @@ cd "$REPO_ROOT"
 exec guix time-machine --channels="$REPO_ROOT/channels.scm" -- shell \
 	--manifest="$REPO_ROOT/manifest.scm" \
 	-- \
-	env OPENCONNECT_CLIENT_ENV=1 bash --noprofile --norc -i
+	env OPENCONNECT_CLIENT_ENV=1 PS1='[env] \u@\h:\w\$ ' bash --noprofile --norc -c \
+	'libgcc_file=$(readlink -f "$(gcc -print-file-name=libgcc_s.so.1)") &&
+	libgcc_dir=$(dirname "$libgcc_file") &&
+	export LD_LIBRARY_PATH="$libgcc_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" &&
+	export PS1='"'"'[env] \u@\h:\w\$ '"'"'
+	exec bash --noprofile --norc -i'

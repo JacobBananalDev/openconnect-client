@@ -1,8 +1,6 @@
 module github.com/JacobBananalDev/openconnect-client
 
-go 1.26.3
-
-toolchain go1.27.3
+go 1.27.4
 
 require github.com/wailsapp/wails/v3 v3.0.0
 

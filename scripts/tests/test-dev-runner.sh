@@ -41,7 +41,7 @@ cat > "$tools/go" <<'EOF'
 #!/bin/bash
 set -eu
 printf 'go %s\n' "$*" >> "$TEST_LOG"
-[[ ${GOROOT+x} != x && $CC == gcc && $CXX == g++ && $CGO_CFLAGS == '' && $CGO_CPPFLAGS == '' && $CGO_CXXFLAGS == '' && $CGO_LDFLAGS == '' && $CGO_ENABLED == 1 && $GOTOOLCHAIN == local ]]
+[[ ${GOROOT+x} != x && $CC == gcc && $CXX == g++ && $CGO_CFLAGS == '' && $CGO_CPPFLAGS == '' && $CGO_CXXFLAGS == '' && $CGO_LDFLAGS == '' && $CGO_ENABLED == 1 && $GOTOOLCHAIN == auto ]]
 case $1 in
 	list)
 		[[ ${TEST_FAILURE:-} != go-list ]] || exit 31
