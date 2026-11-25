@@ -105,6 +105,32 @@ func (p *Policy) Allows(config vpn.ConnectionConfig) bool {
 	return false
 }
 
+// Resolve selects a policy-approved script when the request omits one.
+func (p *Policy) Resolve(config vpn.ConnectionConfig) (vpn.ConnectionConfig, bool) {
+	if p == nil {
+		return vpn.ConnectionConfig{}, false
+	}
+	if config.Script != "" {
+		return config, p.Allows(config)
+	}
+	var selected vpn.ConnectionConfig
+	found := false
+	for _, allowed := range p.connections {
+		if allowed.ServerURL != config.ServerURL || allowed.Protocol != config.Protocol || allowed.CACert != config.CACert {
+			continue
+		}
+		if found && selected != allowed {
+			return vpn.ConnectionConfig{}, false
+		}
+		selected = allowed
+		found = true
+	}
+	if !found || !p.Allows(selected) {
+		return vpn.ConnectionConfig{}, false
+	}
+	return selected, true
+}
+
 func validateConnection(config vpn.ConnectionConfig) error {
 	if err := config.Validate(); err != nil {
 		return err

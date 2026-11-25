@@ -73,8 +73,11 @@ example:
 
 Replace the example with reviewed settings and a trusted installed script.
 An optional `ca_cert` must match the request exactly; if omitted, clients
-must omit it too. Every entry requires an explicit script. Script paths are
-restricted to ASCII letters, digits, `/`, `.`, `_`, and `-`, because
+must omit it too. Every policy entry requires an explicit script. A request
+that omits the script uses the policy's script only if the matching server,
+protocol and certificate identify one distinct script; otherwise it is denied.
+The GUI sends no script and its current screen cannot specify a CA certificate.
+Script paths are restricted to ASCII letters, digits, `/`, `.`, `_`, and `-`, because
 OpenConnect treats this option as a shell command. The server must not contain
 credentials, a query, a fragment, whitespace, or begin with `-`. Supported
 protocols are `anyconnect`, `nc`, `gp`, `pulse`, `f5`, `fortinet`, and `array`.
@@ -96,11 +99,14 @@ sudo install -o root -g root -m 0644 /path/to/reviewed-policy.json /etc/openconn
 sudo systemctl restart occlientd.service
 ```
 
-An authorized user can then request the exact approved configuration:
+An authorized user can then request the approved configuration explicitly:
 
 ```bash
 ./build/occlient connect --background --server vpn.example.com --script /usr/share/vpnc-scripts/vpnc-script
 ```
+
+For an unambiguous policy match, the script can also be omitted from a
+background request; the daemon supplies it from the policy.
 
 Startup does not confirm authentication or tunnel readiness.
 
@@ -126,9 +132,10 @@ and force-kills remaining processes in its control group if needed.
   ownership and modes described above.
 - **Access denied:** Confirm the user belongs to `openconnect-client` in the
   current login session. Unsupported `SO_PEERGROUPS` retrieval fails closed.
-- **`policy_denied`:** Compare every requested field with the policy, including
-  the explicit script and optional CA certificate. Restart the service after
-  changing the policy.
+- **`policy_denied`:** Compare the server, protocol, optional CA certificate,
+  and any explicitly requested script with the policy. Without a requested
+  script, matching entries must identify one distinct script. Restart the
+  service after changing the policy.
 - **Service fails to start or process fails to start:** Review the journal for
   policy, executable, PATH, ownership, permissions, symlink, or ACL errors.
   The service's fixed PATH differs from an interactive shell's PATH.

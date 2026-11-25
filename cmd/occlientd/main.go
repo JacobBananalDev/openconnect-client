@@ -76,7 +76,7 @@ func run() error {
 	authorize := ipc.AuthorizerFunc(func(_ context.Context, peer ipc.PeerCredentials) error {
 		return authorizePeer(peer, uint32(gid))
 	})
-	service, err := daemon.NewService(ipc.DefaultSocketPath, trustedRunner{runner}, authorize, policy.Allows)
+	service, err := daemon.NewService(ipc.DefaultSocketPath, trustedRunner{runner}, authorize, policy.Resolve)
 	if err != nil {
 		return err
 	}

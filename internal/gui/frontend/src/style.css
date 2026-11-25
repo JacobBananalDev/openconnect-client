@@ -1,0 +1,248 @@
+@import "tailwindcss";
+
+:root {
+  font-family: system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+.app {
+  --background: #0f172a;
+  --surface: #1e293b;
+  --border: #475569;
+  --text: #f8fafc;
+  --muted: #cbd5e1;
+  --accent: #60a5fa;
+  --error: #fecaca;
+  color-scheme: dark;
+  background: var(--background);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.app[data-theme="light"] {
+  --background: #f1f5f9;
+  --surface: #ffffff;
+  --border: #94a3b8;
+  --text: #0f172a;
+  --muted: #475569;
+  --accent: #1d4ed8;
+  --error: #991b1b;
+  color-scheme: light;
+}
+
+button, input, select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled, input:disabled, select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.topbar {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+}
+
+.brand {
+  font-weight: 700;
+}
+
+.theme-button, .nav-item, .secondary-button, .primary-button {
+  border-radius: 0.5rem;
+  padding: 0.6rem 1rem;
+}
+
+.theme-button, .secondary-button {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.layout {
+  display: flex;
+  min-height: calc(100vh - 4.5rem);
+}
+
+.sidebar {
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex: 0 0 12rem;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1.5rem 1rem;
+}
+
+.nav-item {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  text-align: left;
+}
+
+.nav-item.active {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.sidebar-note {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: auto 1rem 0;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  padding: 2.5rem;
+}
+
+.content section {
+  margin: 0 auto;
+  max-width: 48rem;
+}
+
+.heading, .status-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+h1 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin: 0.25rem 0;
+}
+
+p {
+  margin: 0;
+}
+
+.eyebrow, .label {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  margin-top: 2rem;
+  padding: 1.5rem;
+}
+
+.state {
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.notice {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-top: 1.25rem;
+}
+
+.error {
+  color: var(--error);
+  margin-top: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.fields {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 2fr 1fr;
+  margin-top: 1.5rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.field label {
+  font-weight: 600;
+}
+
+.field input, .field select {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--text);
+  min-width: 0;
+  padding: 0.65rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.primary-button {
+  background: #2563eb;
+  border: 1px solid #2563eb;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .topbar, .content {
+    padding: 1rem;
+  }
+
+  .layout {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    border-bottom: 1px solid var(--border);
+    border-right: 0;
+    flex: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    padding: 0.75rem;
+  }
+
+  .sidebar-note {
+    display: none;
+  }
+
+  .fields {
+    grid-template-columns: 1fr;
+  }
+}

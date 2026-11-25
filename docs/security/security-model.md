@@ -2,12 +2,13 @@
 
 ## Current implementation
 
-The supported user-facing workflow is the foreground `occlient` CLI. It runs
-as the invoking user and does not elevate privileges. `cmd/occlientd` exposes
-an engine-backed Unix socket used by explicit CLI daemon commands.
+The foreground `occlient` CLI runs as the invoking user and does not elevate
+privileges. The desktop GUI and explicit CLI daemon commands use the shared
+IPC client to communicate with `cmd/occlientd` over an engine-backed Unix
+socket. The GUI is launched unprivileged and does not execute OpenConnect.
 
 The daemon requires root and authorizes root or members of the
-administrator-managed `openconnect-client` group. It allows only exact
+administrator-managed `openconnect-client` group. It allows only
 connection configurations in the administrator-managed policy. The project
 does not install a systemd unit or privileged service automatically.
 The [daemon and IPC architecture](../architecture/daemon-and-ipc.md) describes
@@ -50,8 +51,10 @@ including supplementary groups; unsupported credential retrieval fails closed.
 The existing runtime directory must be root-owned, group-owned by the
 authorized group, mode `0750`, and free of ACLs.
 
-The root-controlled policy is a bounded, strictly decoded allowlist. It must
-match all connection options exactly and requires a trusted explicit script.
+The root-controlled policy is a bounded, strictly decoded allowlist. Each entry
+requires a trusted script. Explicitly requested options must match exactly;
+when a request omits the script, the daemon selects it only if the matching
+server, protocol, and certificate identify one distinct policy script.
 Policy, scripts, certificates, executables, search paths, and their ancestors
 must be root-owned, not group- or world-writable, without ACLs or symlinks.
 Configured files are rechecked before use. Missing policy denies connections;
@@ -59,6 +62,11 @@ invalid or unsafe policy prevents startup. These checks do not protect against
 a malicious or misconfigured administrator or changes by root. The daemon
 does not log request contents, credentials, tokens, cookies, or raw subprocess
 output.
+
+The GUI binding exposes status, connect, and disconnect operations; connect
+accepts server, protocol, and optional CA certificate fields, but not a script
+or arbitrary executable. The current screen supplies only server and protocol.
+The daemon remains responsible for authorization and policy enforcement.
 
 ## Connection state and authentication
 
@@ -68,8 +76,9 @@ OpenConnect may require network privileges that the foreground user does not
 have.
 
 The client does not implement credential storage, SAML, browser-based
-authentication, MFA, or automatic reconnection. No credential persistence is
-introduced.
+authentication, MFA, or automatic reconnection. The production GUI uses
+embedded frontend assets; no additional navigation restrictions are claimed
+here.
 
 ## Verification boundaries
 

@@ -62,6 +62,57 @@ func TestPolicyExactAllowlist(t *testing.T) {
 	}
 }
 
+func TestPolicyResolveScript(t *testing.T) {
+	dir := trustedTestRoot(t)
+	script := filepath.Join(dir, "script")
+	otherScript := filepath.Join(dir, "other-script")
+	cert := filepath.Join(dir, "ca.pem")
+	for _, path := range []string{script, otherScript, cert} {
+		if err := os.WriteFile(path, []byte("test"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := writePolicy(t, dir, `{"connections":[`+
+		`{"server":"vpn","protocol":"gp","script":"`+script+`"},`+
+		`{"server":"vpn","protocol":"gp","script":"`+script+`"},`+
+		`{"server":"cert-vpn","protocol":"gp","script":"`+script+`","ca_cert":"`+cert+`"},`+
+		`{"server":"ambiguous","protocol":"gp","script":"`+script+`"},`+
+		`{"server":"ambiguous","protocol":"gp","script":"`+otherScript+`"}`+
+		`]}`)
+	policy, err := loadPolicy(path, dir, uint32(os.Getuid()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name    string
+		request vpn.ConnectionConfig
+		want    vpn.ConnectionConfig
+		allowed bool
+	}{
+		{"unique script with duplicate entries", vpn.ConnectionConfig{ServerURL: "vpn", Protocol: "gp"}, vpn.ConnectionConfig{ServerURL: "vpn", Protocol: "gp", Script: script}, true},
+		{"matching certificate", vpn.ConnectionConfig{ServerURL: "cert-vpn", Protocol: "gp", CACert: cert}, vpn.ConnectionConfig{ServerURL: "cert-vpn", Protocol: "gp", CACert: cert, Script: script}, true},
+		{"missing certificate", vpn.ConnectionConfig{ServerURL: "cert-vpn", Protocol: "gp"}, vpn.ConnectionConfig{}, false},
+		{"extra certificate", vpn.ConnectionConfig{ServerURL: "vpn", Protocol: "gp", CACert: cert}, vpn.ConnectionConfig{}, false},
+		{"wrong server", vpn.ConnectionConfig{ServerURL: "other", Protocol: "gp"}, vpn.ConnectionConfig{}, false},
+		{"wrong protocol", vpn.ConnectionConfig{ServerURL: "vpn", Protocol: "nc"}, vpn.ConnectionConfig{}, false},
+		{"ambiguous scripts", vpn.ConnectionConfig{ServerURL: "ambiguous", Protocol: "gp"}, vpn.ConnectionConfig{}, false},
+		{"explicit script resolves ambiguity", vpn.ConnectionConfig{ServerURL: "ambiguous", Protocol: "gp", Script: script}, vpn.ConnectionConfig{ServerURL: "ambiguous", Protocol: "gp", Script: script}, true},
+		{"unapproved explicit script", vpn.ConnectionConfig{ServerURL: "vpn", Protocol: "gp", Script: otherScript}, vpn.ConnectionConfig{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, allowed := policy.Resolve(tt.request)
+			if allowed != tt.allowed || (allowed && got != tt.want) {
+				t.Fatalf("Resolve(%+v) = %+v, %v; want %+v, %v", tt.request, got, allowed, tt.want, tt.allowed)
+			}
+		})
+	}
+	var missing *Policy
+	if _, allowed := missing.Resolve(vpn.ConnectionConfig{ServerURL: "vpn", Protocol: "gp"}); allowed {
+		t.Fatal("missing policy allowed a scriptless request")
+	}
+}
+
 func TestPolicyRejectsInvalidDocuments(t *testing.T) {
 	tests := []struct {
 		name string
@@ -143,14 +194,21 @@ func TestPolicyRechecksConfiguredFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := vpn.ConnectionConfig{ServerURL: "vpn", Protocol: "gp", Script: script, CACert: cert}
+	scriptless := vpn.ConnectionConfig{ServerURL: "vpn", Protocol: "gp", CACert: cert}
 	if !policy.Allows(config) {
 		t.Fatal("trusted configured script was denied")
+	}
+	if resolved, ok := policy.Resolve(scriptless); !ok || resolved != config {
+		t.Fatal("trusted scriptless configuration was denied")
 	}
 	if err := os.Chmod(cert, 0o622); err != nil {
 		t.Fatal(err)
 	}
 	if policy.Allows(config) {
 		t.Fatal("certificate made group/world writable was allowed")
+	}
+	if _, ok := policy.Resolve(scriptless); ok {
+		t.Fatal("scriptless request with untrusted certificate was allowed")
 	}
 	if err := os.Chmod(cert, 0o600); err != nil {
 		t.Fatal(err)
@@ -160,6 +218,9 @@ func TestPolicyRechecksConfiguredFiles(t *testing.T) {
 	}
 	if policy.Allows(config) {
 		t.Fatal("script made group/world writable was allowed")
+	}
+	if _, ok := policy.Resolve(scriptless); ok {
+		t.Fatal("scriptless request with untrusted script was allowed")
 	}
 }
 

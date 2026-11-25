@@ -29,6 +29,13 @@ go.work.sum
 # Build output
 build/
 
+# Project-local Go toolchains and module cache
+/.go/
+
+# GUI development artifacts
+/internal/gui/frontend/node_modules/
+/internal/gui/web/dist/
+
 # env file
 .env
 

@@ -1,235 +1,244 @@
 # OpenConnect Client
 
-OpenConnect Client is an early-stage Linux command-line application for managing
-connections through the OpenConnect executable. The current CLI supports
-foreground connections. The CLI also supports an experimental background
-daemon with administrator-controlled connection policy; service installation
-is manual.
+**A Linux desktop and command-line foundation for OpenConnect.**
 
-The client passes OpenConnect arguments without shell interpolation and does not
-collect or persist credentials.
+One VPN engine, two interfaces, and an administrator-controlled background
+service—built around a reproducible, project-local developer workflow.
 
-## Requirements
+| Status | What it means |
+|---|---|
+| 🟢 **Available** | Foreground CLI, desktop foundation, and experimental daemon |
+| 🟡 **Experimental** | Privileged service setup and real VPN compatibility require administrator verification |
+| 🔵 **Planned** | SAML/SSO, MFA, profiles, credential management, and production packaging |
 
-- Linux
-- GNU Guix for the project development environment
-- OpenConnect installed on the host and discoverable through `PATH`, a common
-  system location, or `OPENCONNECT_PATH`
+> **Early-stage software:** Starting OpenConnect reports `connecting`; it does
+> not establish that authentication succeeded or that the tunnel is ready.
+> The client cannot answer interactive authentication prompts and does not
+> collect or persist credentials.
 
-The project shell provides development tools; it does not install OpenConnect or
-grant VPN network privileges.
+## Architecture
 
-## Quick Start
+```mermaid
+flowchart LR
+    subgraph user["User session"]
+        ui["React desktop UI"] --> wails["Wails service"]
+        wails --> guiIPC["IPC client"]
+        cli["CLI"] -- background --> cliIPC["IPC client"]
+        cli -- foreground --> foregroundEngine["VPN engine"]
+        foregroundEngine --> foregroundOC["OpenConnect"]
+    end
 
-**Prerequisites:** Linux, Git, GNU Guix, and an OpenConnect executable available
-on the host.
+    guiIPC --> socket["Restricted Unix socket"]
+    cliIPC --> socket
+
+    subgraph daemon["Privileged daemon"]
+        server["IPC server"] --> auth["Peer authorization"]
+        auth --> service["Daemon service"]
+        service -- connect --> policy["Administrator policy"]
+        policy -- approved --> daemonEngine["VPN engine"]
+        service -- "status / disconnect" --> daemonEngine
+        daemonEngine --> daemonOC["OpenConnect"]
+    end
+
+    socket --> server
+    systemd["systemd"] -. "optional supervision" .-> service
+
+    classDef uiStyle fill:#dbeafe,stroke:#2563eb,color:#172554
+    classDef transport fill:#e0e7ff,stroke:#4f46e5,color:#1e1b4b
+    classDef security fill:#fef3c7,stroke:#d97706,color:#451a03
+    classDef engine fill:#d1fae5,stroke:#059669,color:#022c22
+    classDef process fill:#f3e8ff,stroke:#9333ea,color:#3b0764
+    class ui,wails,cli uiStyle
+    class guiIPC,cliIPC,socket,server transport
+    class auth,policy security
+    class service,foregroundEngine,daemonEngine engine
+    class foregroundOC,daemonOC,systemd process
+```
+
+The GUI and background CLI send requests to the daemon; they do not run the
+privileged VPN process themselves. The daemon authorizes peers and applies an
+administrator-managed connection policy. The foreground CLI runs independently
+as the invoking user. Both paths use the same engine implementation in separate
+processes. Service installation is manual.
+
+## Quick start
+
+**Requirements:** Linux, Git, GNU Guix, and an OpenConnect executable available
+on the host. A graphical display is needed for the GUI. The project shell
+provides development tools, not OpenConnect or VPN network privileges.
 
 ```bash
-# Clone and enter project shell
 git clone https://github.com/JacobBananalDev/openconnect-client.git
 cd openconnect-client
 ./scripts/shell.sh
 ```
 
-**Inside the project shell:**
+Inside the project shell:
 
 ```bash
-# Build the CLI and daemon
-./run.ysh build
-
-# Test the binary
-./build/occlient --version
-./build/occlient -h
-./build/occlient connect -h
-
-# Run tests
-./run.ysh unit test
-
-# Format and lint
-./run.ysh fmt
-./run.ysh lint
-
-# Launch your editor (VS Code or Codium)
-./run.ysh penv code .
+./run.ysh build-prod     # Build CLI, daemon, and desktop GUI
+./run.ysh run            # Launch the GUI as an unprivileged user
+./run.ysh unit-test      # Run Go and frontend tests
+./run.ysh penv code .    # Open an editor in the project environment
 ```
 
-**Exit the project shell:**
-```bash
-exit
-```
+Use `./run.ysh penv codium .` or `./run.ysh penv cursor .` for other supported
+editors. Exit the shell with `exit`.
 
----
+The pure Guix shell uses pinned channels and a manifest, disables persistent Go
+environment configuration, and rejects nested Guix environments. It preserves
+selected desktop, terminal, locale, and SSH-agent settings. Detected host
+editor and OpenConnect directories are appended after Guix's `PATH`; other
+executables in those directories are also accessible. `OPENCONNECT_PATH` is
+preserved when set.
 
-## Usage
+Go selects the toolchain required by `go.mod`; downloaded toolchains and modules
+live in the Git-ignored `.go/` directory. The Go build cache remains shared.
+The runner prepares Go on startup; explicit help commands do not.
 
-### Connect to a VPN
+## Build, run, and develop
+
+### 🟢 Build
 
 ```bash
-# Basic connection (uses default "anyconnect" protocol)
-./build/occlient connect --server vpn.example.com
-
-# With custom protocol and CA cert
-./build/occlient connect \
-  --server vpn.example.com:8443 \
-  --protocol pulse \
-  --ca-cert /path/to/ca-bundle.crt
-
-# With custom vpnc-script
-./build/occlient connect \
-  --server vpn.example.com \
-  --script /path/to/vpnc-script
+./run.ysh build-prod
+./run.ysh build-dev
 ```
 
-**Supported protocols:** anyconnect, nc, gp, pulse, f5, fortinet, array
+Both builds install lockfile-pinned frontend dependencies locally using
+Guix-provided npm and produce all three binaries. `build-prod` writes to
+`build/`; `build-dev` writes to `build/dev/`:
 
-The CLI does not collect credentials or provide interactive authentication. Its
-OpenConnect process receives `/dev/null` as standard input, so it cannot answer
-interactive prompts.
+```text
+build/occlient       CLI
+build/occlientd      daemon
+build/occlient-gui   desktop GUI
+```
 
-**Disconnect:** Press Ctrl+C to stop the foreground connection.
+`build-prod` uses a production-tagged GUI; it does not package or install
+the application. `build-dev` generates Wails bindings and builds a development
+GUI that can honor `FRONTEND_DEVSERVER_URL`. Both embed built frontend assets;
+only `watch-gui` provides reloads.
 
-### Daemon commands
+Rebuild after source changes or branch switches. Once the environment check
+passes and the build lock is acquired, a build removes the previous binaries
+for that variant; after a failure, build it again before running. Binaries may
+be stale if the environment check or lock acquisition fails. Build and watch
+sessions cannot run concurrently. Remove a stale empty `build/.build-lock` or
+`build/.dev-lock` only after confirming the corresponding session is not running.
 
-The CLI can send `connect --background --server vpn.example.com`, `status`,
-and `disconnect` to the daemon. A background request does not fall back to
-foreground mode or elevate privileges. The daemon accepts root and members of
-an administrator-managed group, and denies connections unless an exact
-configuration is approved. A `connecting` state does not confirm tunnel
-readiness. See the [systemd guide](docs/systemd.md) for setup and troubleshooting
-and [manual verification](docs/manual-verification.md) for test limitations.
+Go builds clear inherited `GOROOT` and CGO flags and use the project environment's
+GCC/G++ and the toolchain selected by `go.mod`.
 
-### Environment Variables
+### 🔵 Run
 
 ```bash
-# Override OpenConnect binary location (3-tier search: env var → PATH → common paths)
-export OPENCONNECT_PATH=/custom/path/to/openconnect
-./build/occlient connect --server vpn.example.com
+./run.ysh run                             # Production-build desktop GUI
+./run.ysh run-dev                         # Development-build desktop GUI
+./run.ysh run --gui                       # Explicit GUI
+./run.ysh run -c --server vpn.example.com # Foreground CLI connection
+./run.ysh run -c --server vpn.example.com --background
+./run.ysh run -s                          # Daemon status
+./run.ysh run -d                          # Daemon disconnect
+./run.ysh run --daemon                    # Start daemon directly; no setup or elevation
+./run.ysh run --version                   # CLI version
+./run.ysh run --help                      # Selectors and help for both variants
 ```
 
----
+Build the chosen variant first: neither run task builds, installs services, or
+elevates privileges. `run-dev` accepts the same selectors as `run`.
+Choose one operation as the first argument. An optional `--` immediately after
+the selector ends wrapper parsing and is removed; use a second `--` to forward
+one to the target. Other arguments are forwarded unchanged. Existing CLI
+subcommands such as `./run.ysh run connect --help` remain available.
 
-## Development
+The GUI launcher canonicalizes `GUIX_LOCPATH` entries for WebKitGTK without
+disabling its sandbox. The direct daemon selector does not configure its
+required identity, trusted paths, socket directory, or policy; see the
+[systemd guide](docs/systemd.md).
 
-### Setup
+### 🟣 Develop
 
-1. **Clone repository**
-   ```bash
-   git clone https://github.com/JacobBananalDev/openconnect-client.git
-   cd openconnect-client
-   ```
-
-2. **Configure git hooks** (one-time)
-   ```bash
-   git config core.hooksPath .githooks
-   ```
-
-3. **Activate project environment**
-   ```bash
-   ./scripts/shell.sh
-   ```
-
-### Available Commands
-
-**Build and Run:**
 ```bash
-./run.ysh build          # Compile build/occlient and build/occlientd
-./run.ysh run --version  # Run binary with arguments
+./run.ysh watch-gui
 ```
 
-**Testing:**
+Run as an unprivileged user with a graphical display. This uses a project-local
+Wails CLI, generates bindings, installs locked frontend dependencies, starts
+Vite on `127.0.0.1:9245`, hot reloads frontend edits, and rebuilds/restarts the
+GUI for Go changes. Stop
+with Ctrl+C. Binding generation may update tracked frontend files. If bound Go
+methods change while watching, restart `watch-gui` to regenerate the bindings.
+The existing `build` and `dev` tasks remain aliases for `build-prod` and
+`watch-gui`.
+
+## Connections and security
+
+### Foreground CLI
+
 ```bash
-./run.ysh unit test                 # Run all tests with coverage
-./run.ysh unit test --race          # With race detector
-./run.ysh unit test --count 5       # Run multiple times
-./run.ysh unit test -- ./internal/vpn -run TestName  # Select a test
+./run.ysh run connect --server vpn.example.com
+./run.ysh run connect --server vpn.example.com:8443 --protocol pulse --ca-cert /path/to/ca-bundle.crt
+./run.ysh run connect --server vpn.example.com --script /path/to/vpnc-script
 ```
 
-Use `-r` for `--race` and `-c N` for `--count N`. Arguments after `--`
-replace the default `./...` target and are forwarded to Go. The existing
-`./run.ysh unit-test` command remains an alias.
+The foreground connection ends with Ctrl+C. The CLI supports `anyconnect`,
+`nc`, `gp`, `pulse`, `f5`, `fortinet`, and `array`. OpenConnect receives
+`/dev/null` as standard input, so interactive authentication is unavailable.
+Arguments are passed without shell interpolation.
 
-**Code Quality:**
+### 🟡 Background service and desktop
+
+The daemon accepts root and members of its administrator-managed group. Its
+policy controls allowed server, protocol, certificate, and script combinations.
+When a request omits a script, the daemon selects it only if the other fields
+identify one distinct approved script. The GUI does not expose a script field
+or a custom CA field in its current screen. Profiles, Logs, and Settings are
+placeholders.
+
+Background requests never silently fall back to foreground mode or elevate
+privileges. Closing the GUI does not request disconnection. For service setup,
+policy requirements, and limitations, see the [systemd guide](docs/systemd.md),
+[architecture](docs/architecture/daemon-and-ipc.md), and
+[security model](docs/security/security-model.md).
+
+## Quality checks
+
 ```bash
-./run.ysh fmt            # Format code (gofmt)
-./run.ysh lint           # Lint with go vet
-./run.ysh vuln           # Security scan (govulncheck)
+./run.ysh unit-test                 # Go and frontend tests
+./run.ysh unit-test --race          # Race detector for Go tests
+./run.ysh unit-test --count 5       # Repeat Go tests
+./run.ysh unit-test -- ./internal/vpn -run TestName  # Go selection only
+./run.ysh fmt                       # Format project Go files
+./run.ysh lint                      # Go vet
+./run.ysh vuln                      # Go vulnerability scan
+./run.ysh tidy                      # Update go.mod and go.sum
 ```
 
-**Editor:**
-```bash
-./run.ysh penv code .    # Open VS Code
-./run.ysh penv codium .  # Open Codium
-./run.ysh editor         # Use VISUAL or EDITOR
-```
+The frontend suite runs once unless Go tests are explicitly selected after
+`--`. If frontend dependencies are missing, the test task installs them
+locally using the lockfile. `unit test` remains an alias. For grouped tasks and
+examples, run `./run.ysh list-tasks` or `./run.ysh TASK -h` / `--help`.
+Explicit help works outside the project shell when YSH is available. Set
+`NO_COLOR=1` to disable terminal colors; redirected output is plain.
+
+## Troubleshooting
+
+| Problem | Next step |
+|---|---|
+| Project environment not active | Exit any existing Guix environment, then run `./scripts/shell.sh`. |
+| OpenConnect not found | Install it on the host using your distribution's instructions, or set `OPENCONNECT_PATH` to its executable before entering the project shell. |
+| Daemon unavailable or request denied | Check the [service setup and policy](docs/systemd.md); the GUI does not start or configure the daemon. |
+| Git hooks not running | Run `git config core.hooksPath .githooks` once per clone. |
+| Tests fail locally | Repeat Go tests with `./run.ysh unit-test --count 10` or use `--race`; inspect the reported failure. |
 
 ## Documentation
 
-- [Contributing](CONTRIBUTING.md)
-- [Development guide](docs/development.md)
-- [Experimental systemd service](docs/systemd.md)
-- [Architecture](docs/architecture/daemon-and-ipc.md)
-- [Security model](docs/security/security-model.md)
-- [Manual verification](docs/manual-verification.md)
-
----
-
-## Common Issues
-
-### OpenConnect Not Found
-
-**Problem:** `openconnect not found; install with: apt-get install openconnect`
-
-**Solution:**
-```bash
-# Install OpenConnect on host
-sudo apt-get install openconnect
-
-# Or specify custom location
-export OPENCONNECT_PATH=/path/to/openconnect
-./build/occlient connect --server vpn.example.com
-```
-
-### Project Environment Activation
-
-**Problem:** `The project environment is not active.`
-
-**Solution:**
-```bash
-./scripts/shell.sh
-# Then run commands inside the shell
-```
-
-### Git Hooks Not Running
-
-**Problem:** Hooks don't run before commit/push
-
-**Solution:**
-```bash
-# Configure hooks (one-time setup)
-git config core.hooksPath .githooks
-
-# Verify configuration
-git config core.hooksPath
-# Should output: .githooks
-```
-
-### Tests Fail Locally but Pass in CI
-
-**Problem:** Race conditions or timing issues
-
-**Solution:**
-```bash
-# Run tests multiple times
-./run.ysh unit test --count 10
-
-# Run with race detector
-./run.ysh unit test --race
-
-# Run one package with the race detector
-./run.ysh unit test --race -- ./internal/vpn
-```
+- [Contributing](CONTRIBUTING.md) · [Development guide](docs/development.md)
+- [Daemon and IPC architecture](docs/architecture/daemon-and-ipc.md) · [Security model](docs/security/security-model.md)
+- [Experimental systemd service](docs/systemd.md) · [Manual verification](docs/manual-verification.md)
+- [Phase 5 plan](docs/plans/phase-5-desktop-ui-foundation.md)
 
 ## License
 
-This project is licensed under the Apache License, Version 2.0. See
-[LICENSE](LICENSE).
+Licensed under [Apache-2.0](LICENSE).
