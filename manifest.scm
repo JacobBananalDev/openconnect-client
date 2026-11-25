@@ -3,6 +3,7 @@
    "node"
    "git"
    "gcc-toolchain"
+   "glibc-locales"
    "pkg-config"
    "gtk"
    "webkitgtk"

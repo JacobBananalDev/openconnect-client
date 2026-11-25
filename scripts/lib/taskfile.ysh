@@ -1,4 +1,5 @@
 var _task_file = $(realpath "$0")
+var _project_root = $(dirname "$_task_file")
 var _task_source = $(cat "$_task_file")
 var _task_docs = []
 var _pending_doc = {}
@@ -10,6 +11,9 @@ for line in (_task_source.split(u'\n')) {
 	if (trimmed.startsWith('## usage: ')) {
 		setvar _pending_doc['usage'] = trimmed[10:]
 		setvar _doc_section = ''
+	} elif (trimmed.startsWith('## category: ')) {
+		setvar _pending_doc['category'] = trimmed[13:]
+		setvar _doc_section = ''
 	} elif (trimmed.startsWith('## visibility: ')) {
 		setvar _pending_doc['visibility'] = trimmed[15:]
 		setvar _doc_section = ''
@@ -20,6 +24,8 @@ for line in (_task_source.split(u'\n')) {
 		setvar _doc_section = 'description'
 	} elif (trimmed === '## options:') {
 		setvar _doc_section = 'options'
+	} elif (trimmed === '## examples:') {
+		setvar _doc_section = 'examples'
 	} elif (trimmed.startsWith('##') and _doc_section) {
 		var detail = trimmed[3:]
 		var existing = get(_pending_doc, _doc_section, '')
@@ -45,37 +51,80 @@ for line in (_task_source.split(u'\n')) {
 }
 
 proc _print-task-list {
+	var terminal = false
 	var color = false
-	if (not get(ENV, 'NO_COLOR')) {
-		if test -t 1 {
+	if test -t 1 {
+		setvar terminal = true
+		if (not get(ENV, 'NO_COLOR') and get(ENV, 'TERM') !== 'dumb') {
 			setvar color = true
 		}
 	}
 
-	if (color) {
-		printf '\033[1;36mOpenConnect Client\033[0m  \033[1mDevelopment Tasks\033[0m\n'
-		printf '\033[2m%s\033[0m\n' '-----------------------------------'
+	if (terminal) {
+		if (color) {
+			printf '  \033[1;36mOPENCONNECT CLIENT\033[0m\n'
+			printf '  \033[1;35mBuild, test, and manage your development workflow.\033[0m\n'
+			printf '\033[2;36m%s\033[0m\n' '  -------------------------------------------------'
+		} else {
+			write -- '  OPENCONNECT CLIENT'
+			write -- '  Build, test, and manage your development workflow.'
+			write -- '  -------------------------------------------------'
+		}
 	} else {
-		write -- 'OpenConnect Client | Development Tasks'
-		write -- '---------------------------------------'
+		write -- 'OPENCONNECT CLIENT'
+		write -- 'Build, test, and manage your development workflow.'
+		write -- '-------------------------------------------------'
 	}
 
-	var visible_count = 0
+	var categories = []
+	var seen_categories = {}
 	for doc in (_task_docs) {
 		if (get(doc, 'visibility', 'public') !== 'internal') {
-			if (color) {
-				printf '  \033[1;32m%-12s\033[0m %s\n' "$[doc.name]" "$[get(doc, 'summary', 'No description available')]"
-			} else {
-				write -- "  $[doc.name] - $[get(doc, 'summary', 'No description available')]"
+			var category = get(doc, 'category', 'Other')
+			if (not get(seen_categories, category, false)) {
+				call categories->append(category)
+				setvar seen_categories[category] = true
 			}
-			setvar visible_count = visible_count + 1
 		}
 	}
 
-	if (visible_count === 0) {
+	for category in (categories) {
+		write -- ''
+		if (color) {
+			printf '  \033[1;34m%s\033[0m\n' "$category"
+		} elif (terminal) {
+			write -- "  $category"
+		} else {
+			write -- "$category"
+		}
+		for doc in (_task_docs) {
+			if (get(doc, 'visibility', 'public') === 'internal' or
+			    get(doc, 'category', 'Other') !== category) {
+				continue
+			}
+			if (color) {
+				printf '    \033[1;32m%-12s\033[0m \033[2m|\033[0m %s\n' "$[doc.name]" "$[get(doc, 'summary', 'No description available')]"
+			} elif (terminal) {
+				printf '    %-12s | %s\n' "$[doc.name]" "$[get(doc, 'summary', 'No description available')]"
+			} else {
+				write -- "  $[doc.name] - $[get(doc, 'summary', 'No description available')]"
+			}
+		}
+	}
+
+	if (len(categories) === 0) {
 		write -- ''
 		write -- 'No project tasks are available yet.'
 		write -- 'Project tasks will appear here as they are added.'
+	} else {
+		write -- ''
+		if (color) {
+			printf '  \033[2mRun\033[0m \033[1;33m./run.ysh TASK -h\033[0m \033[2mor\033[0m \033[1;33m./run.ysh TASK --help\033[0m \033[2mfor details.\033[0m\n'
+		} elif (terminal) {
+			write -- '  Run ./run.ysh TASK -h or ./run.ysh TASK --help for details.'
+		} else {
+			write -- 'Run ./run.ysh TASK -h or ./run.ysh TASK --help for details.'
+		}
 	}
 }
 
@@ -97,6 +146,12 @@ proc _print-task-help(task_name) {
 				write -- 'OPTIONS:'
 				write -- $options
 			}
+			var examples = get(doc, 'examples', '').trim()
+			if (examples) {
+				write -- ''
+				write -- 'EXAMPLES:'
+				write -- $examples
+			}
 			return
 		}
 	}
@@ -106,7 +161,7 @@ proc _print-task-help(task_name) {
 }
 
 if (len(ARGV) === 0) {
-	_require_project_environment
+	_prepare_go_toolchain
 	_print-task-list
 	exit
 }
@@ -130,6 +185,12 @@ if (len(ARGV) > 1 and (ARGV[1] === '--help' or ARGV[1] === '-h')) {
 	exit
 }
 
+if (len(ARGV) === 3 and ARGV[0] === 'unit' and ARGV[1] === 'test' and
+    (ARGV[2] === '--help' or ARGV[2] === '-h')) {
+	_print-task-help 'unit'
+	exit
+}
+
 var task_found = false
 for doc in (_task_docs) {
 	if (doc.name === ARGV[0]) {
@@ -143,4 +204,5 @@ if (not task_found) {
 	exit 2
 }
 
+_prepare_go_toolchain
 @ARGV

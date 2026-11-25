@@ -12,12 +12,13 @@ cleanup() {
 	fi
 	rm -f -- "$fixture/run.ysh" "$fixture/scripts/run-gui.sh" "$fixture/scripts/lib/taskfile.ysh" "$fixture/scripts/lib/gui-env.sh" \
 		"$fixture/build/occlient" "$fixture/build/occlientd" "$fixture/build/occlient-gui" \
-		"$temp_dir/fake-binary" "$temp_dir/args" "$temp_dir/expected" \
-		"$temp_dir/stdout" "$temp_dir/stderr" "$temp_dir/locale" "$temp_dir/ready" \
+		"$temp_dir/fake-binary" "$temp_dir/go" "$temp_dir/go-log" "$temp_dir/args" "$temp_dir/expected" \
+		"$temp_dir/stdout" "$temp_dir/stdout-clean" "$temp_dir/stderr" "$temp_dir/locale" "$temp_dir/ready" \
 		"$temp_dir/signal" "$temp_dir/locale-link"
 	if [ -d "$fixture/build/.build-lock" ]; then
 		rmdir -- "$fixture/build/.build-lock"
 	fi
+	if [ -d "$fixture/.go" ]; then rmdir "$fixture/.go"; fi
 	rmdir -- "$fixture/scripts/lib" "$fixture/scripts" "$fixture/build" "$fixture" "$temp_dir/locale-dir" "$temp_dir"
 }
 trap cleanup 0
@@ -51,10 +52,20 @@ echo 'target stderr' >&2
 exit "${TEST_STATUS:-0}"
 EOF
 chmod +x "$temp_dir/fake-binary"
+cat > "$temp_dir/go" <<'EOF'
+#!/bin/sh
+set -eu
+[ "$1" = -C ] && [ "$2" = "$TEST_PROJECT" ] && [ "$3" = version ]
+[ "$GOPATH" = "$TEST_PROJECT/.go" ] && [ "$GOMODCACHE" = "$TEST_PROJECT/.go/pkg/mod" ]
+printf '%s\n' prepared >> "$TEST_GO_LOG"
+[ "${TEST_GO_FAILURE:-0}" != 1 ] || { echo 'simulated Go download failure' >&2; exit 1; }
+EOF
+chmod +x "$temp_dir/go"
 for name in occlient occlientd occlient-gui; do
 	cp -- "$temp_dir/fake-binary" "$fixture/build/$name"
 done
-export OPENCONNECT_CLIENT_ENV=1 TEST_ARGS="$temp_dir/args"
+export OPENCONNECT_CLIENT_ENV=1 TEST_ARGS="$temp_dir/args" PATH="$temp_dir:$PATH"
+export TEST_PROJECT="$fixture" TEST_GO_LOG="$temp_dir/go-log"
 export TEST_LOCALE="$temp_dir/locale" TEST_READY="$temp_dir/ready" TEST_SIGNAL="$temp_dir/signal"
 cd "$fixture"
 
@@ -64,7 +75,80 @@ if OPENCONNECT_CLIENT_ENV=0 ./run.ysh > "$temp_dir/stdout" 2> "$temp_dir/stderr"
 fi
 grep -q 'project environment is not active' "$temp_dir/stderr"
 ./run.ysh > "$temp_dir/stdout"
-grep -q 'OpenConnect Client | Development Tasks' "$temp_dir/stdout"
+grep -qx 'OPENCONNECT CLIENT' "$temp_dir/stdout"
+[ -d "$fixture/.go" ]
+grep -qx prepared "$TEST_GO_LOG"
+
+if TEST_GO_FAILURE=1 ./run.ysh run --status > "$temp_dir/stdout" 2> "$temp_dir/stderr"; then
+	echo 'runner accepted a failed Go preparation' >&2
+	exit 1
+fi
+grep -q 'simulated Go download failure' "$temp_dir/stderr"
+grep -q 'Could not prepare the Go toolchain' "$temp_dir/stderr"
+TEST_GO_FAILURE=1 OPENCONNECT_CLIENT_ENV=0 ./run.ysh unit test --help > "$temp_dir/stdout"
+grep -q -- '--race' "$temp_dir/stdout"
+
+NO_COLOR=1 OPENCONNECT_CLIENT_ENV=0 ./run.ysh list-tasks > "$temp_dir/stdout"
+OPENCONNECT_CLIENT_ENV=0 ./run.ysh --help > "$temp_dir/expected"
+diff -u "$temp_dir/stdout" "$temp_dir/expected"
+for heading in 'Build and run' 'Testing' 'Code quality'; do
+	grep -qx "$heading" "$temp_dir/stdout"
+done
+sed -n '/^Build and run$/,/^Testing$/p' "$temp_dir/stdout" | grep -q '^  build -'
+sed -n '/^Testing$/,/^Code quality$/p' "$temp_dir/stdout" | grep -q '^  unit -'
+sed -n '/^Code quality$/,$p' "$temp_dir/stdout" | grep -q '^  lint -'
+grep -Fq 'Run ./run.ysh TASK -h or ./run.ysh TASK --help for details.' "$temp_dir/stdout"
+if grep -q "$(printf '\033')" "$temp_dir/stdout"; then
+	echo 'task list included color with NO_COLOR set' >&2
+	exit 1
+fi
+if grep -Eq '^  (penv|editor) -' "$temp_dir/stdout"; then
+	echo 'internal tasks appeared in the task list' >&2
+	exit 1
+fi
+
+if command -v script >/dev/null 2>&1; then
+	script -q -e -c 'env -u NO_COLOR ./run.ysh list-tasks' /dev/null < /dev/null > "$temp_dir/stdout"
+	if ! grep -q "$(printf '\033')" "$temp_dir/stdout"; then
+		echo 'terminal task list did not include color' >&2
+		exit 1
+	fi
+	sed "s/$(printf '\033')\\[[0-9;]*m//g" "$temp_dir/stdout" | tr -d '\r' > "$temp_dir/expected"
+	script -q -e -c 'NO_COLOR=1 ./run.ysh list-tasks' /dev/null < /dev/null > "$temp_dir/stdout"
+	if grep -q "$(printf '\033')" "$temp_dir/stdout"; then
+		echo 'terminal task list included color with NO_COLOR set' >&2
+		exit 1
+	fi
+	tr -d '\r' < "$temp_dir/stdout" > "$temp_dir/stdout-clean"
+	diff -u "$temp_dir/expected" "$temp_dir/stdout-clean"
+	grep -qx '  OPENCONNECT CLIENT' "$temp_dir/stdout-clean"
+	grep -qx '  Build, test, and manage your development workflow.' "$temp_dir/stdout-clean"
+	grep -Fq 'Run ./run.ysh TASK -h or ./run.ysh TASK --help for details.' "$temp_dir/stdout-clean"
+	script -q -e -c 'TERM=dumb ./run.ysh list-tasks' /dev/null < /dev/null > "$temp_dir/stdout"
+	if grep -q "$(printf '\033')" "$temp_dir/stdout"; then
+		echo 'dumb terminal task list included color' >&2
+		exit 1
+	fi
+else
+	echo 'Skipping terminal color test: script is unavailable' >&2
+fi
+
+OPENCONNECT_CLIENT_ENV=0 ./run.ysh help run > "$temp_dir/stdout"
+grep -qx 'EXAMPLES:' "$temp_dir/stdout"
+grep -qx './run.ysh run --status' "$temp_dir/stdout"
+OPENCONNECT_CLIENT_ENV=0 ./run.ysh run -h > "$temp_dir/expected"
+diff -u "$temp_dir/stdout" "$temp_dir/expected"
+OPENCONNECT_CLIENT_ENV=0 ./run.ysh run --help > "$temp_dir/expected"
+diff -u "$temp_dir/stdout" "$temp_dir/expected"
+OPENCONNECT_CLIENT_ENV=0 ./run.ysh penv --help > "$temp_dir/stdout"
+grep -qx './run.ysh penv code .' "$temp_dir/stdout"
+if OPENCONNECT_CLIENT_ENV=0 ./run.ysh help nonexistent > "$temp_dir/stdout" 2> "$temp_dir/stderr"; then
+	echo 'help accepted an unknown task' >&2
+	exit 1
+else
+	[ "$?" -eq 2 ]
+fi
+grep -q 'no task named "nonexistent"' "$temp_dir/stderr"
 
 assert_call() {
 	binary=$1

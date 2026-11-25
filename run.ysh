@@ -11,6 +11,21 @@ proc _require_project_environment {
 	}
 }
 
+proc _prepare_go_toolchain {
+	_require_project_environment
+	setglobal ENV.GOPATH = "$_project_root/.go"
+	setglobal ENV.GOMODCACHE = "$_project_root/.go/pkg/mod"
+	if ! command -v go >/dev/null 2>&1 {
+		_err 'Go is not available in the project environment.'
+	}
+	if ! mkdir -p "$[ENV.GOPATH]" {
+		_err "Could not create project Go directory: $[ENV.GOPATH]"
+	}
+	if ! go -C "$_project_root" version >/dev/null {
+		_err 'Could not prepare the Go toolchain required by go.mod.'
+	}
+}
+
 ## visibility: internal
 ## usage: penv EDITOR [ARG...]
 ##
@@ -18,6 +33,8 @@ proc _require_project_environment {
 ##
 ## description:
 ## Requires the project environment marker and forwards arguments and exit status.
+## examples:
+## ./run.ysh penv code .
 proc penv {
 	_require_project_environment
 	if (len(ARGV) === 0) {
@@ -39,6 +56,8 @@ proc penv {
 ##
 ## description:
 ## Prefers VISUAL, then EDITOR. Set either variable to one executable path.
+## examples:
+## ./run.ysh editor .
 proc editor {
 	_require_project_environment
 	var editor = get(ENV, 'VISUAL')
@@ -56,21 +75,27 @@ proc editor {
 }
 
 ## usage: ./run.ysh build
+## category: Build and run
 ## summary: Build the CLI, daemon and desktop GUI in build/
 ## description:
 ## Installs locked frontend dependencies locally and builds all three binaries.
 ## Once the build lock is acquired, a failed build removes the project binaries.
+## examples:
+## ./run.ysh build
 proc build {
 	_require_project_environment
 	bash scripts/build.sh
 }
 
 ## usage: ./run.ysh dev
+## category: Build and run
 ## summary: Run the desktop GUI with development reloads
 ## description:
 ## Uses project-local Wails and Vite tools. Builds a separate development GUI,
 ## watches Go files and serves the frontend on 127.0.0.1:9245.
 ## Run as an unprivileged user in the project environment.
+## examples:
+## ./run.ysh dev
 proc dev {
 	_require_project_environment
 	if (len(ARGV) > 0) {
@@ -80,6 +105,7 @@ proc dev {
 }
 
 ## usage: ./run.ysh run [SELECTOR [--] [ARG...]]
+## category: Build and run
 ## summary: Run the built GUI, CLI or daemon
 ## description:
 ## With no selector, launch the GUI. Select one operation first; a second
@@ -95,6 +121,10 @@ proc dev {
 ## -v, --version        Show CLI version.
 ## -h, --help           Show this help without requiring a build.
 ## connect, disconnect, status, version, help are also accepted.
+## examples:
+## ./run.ysh run
+## ./run.ysh run --status
+## ./run.ysh run --connect --server vpn.example.com --background
 proc run {
 	_require_project_environment
 	var args = ARGV
@@ -188,6 +218,7 @@ proc _unit-test {
 }
 
 ## usage: ./run.ysh unit test [-r|--race] [-c|--count N] [-- GO_TEST_ARGS...]
+## category: Testing
 ## summary: Run all unit tests with coverage
 ## description:
 ## Run verbose tests with coverage. Arguments after -- replace the default
@@ -195,6 +226,9 @@ proc _unit-test {
 ## options:
 ## -r, --race       Enable the race detector.
 ## -c, --count N    Run each test N times (positive integer).
+## examples:
+## ./run.ysh unit test --race
+## ./run.ysh unit test -- ./internal/vpn -run TestName
 proc unit {
 	if (len(ARGV) === 0 or ARGV[0] !== 'test') {
 		_err "Usage: ./run.ysh unit test [-r|--race] [-c|--count N] [-- GO_TEST_ARGS...]"
@@ -208,27 +242,51 @@ proc unit {
 }
 
 ## usage: ./run.ysh unit-test [-r|--race] [-c|--count N] [-- GO_TEST_ARGS...]
+## category: Testing
 ## summary: Alias for unit test
 ## description:
 ## Accepts the same options and forwarded arguments as ./run.ysh unit test.
+## examples:
+## ./run.ysh unit-test --count 3
 proc unit-test {
 	_unit-test @ARGV
 }
 
+## usage: ./run.ysh tidy
+## category: Code quality
+## summary: Tidy Go module dependencies
+## description:
+## Runs go mod tidy to update go.mod and go.sum.
+## examples:
+## ./run.ysh tidy
+proc tidy {
+	_require_project_environment
+	if (len(ARGV) > 0) {
+		_err 'Usage: ./run.ysh tidy' (2)
+	}
+	go mod tidy
+}
+
 ## usage: ./run.ysh fmt
+## category: Code quality
 ## summary: Format all Go code with gofmt
 ## description:
-## Applies gofmt -w to format all .go files in the project.
+## Applies gofmt -w to project .go files, excluding the local Go cache.
+## examples:
+## ./run.ysh fmt
 proc fmt {
 	_require_project_environment
-	gofmt -w .
+	find . -path './.go' -prune -o -type f -name '*.go' -exec gofmt -w '{}' +
 	printf '\e[1;32m✓\e[0m Code formatted\n'
 }
 
 ## usage: ./run.ysh lint
+## category: Code quality
 ## summary: Run go vet to check for common mistakes
 ## description:
 ## Executes go vet ./... to detect common Go programming errors.
+## examples:
+## ./run.ysh lint
 proc lint {
 	_require_project_environment
 	go vet ./...
@@ -236,10 +294,13 @@ proc lint {
 }
 
 ## usage: ./run.ysh vuln
+## category: Code quality
 ## summary: Check for known vulnerabilities with govulncheck
 ## description:
 ## Runs go run golang.org/x/vuln/cmd/govulncheck@latest to scan for
 ## known security vulnerabilities affecting the project.
+## examples:
+## ./run.ysh vuln
 proc vuln {
 	_require_project_environment
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...

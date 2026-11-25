@@ -24,6 +24,7 @@ cleanup() {
 		"$temp_dir/minimal/dirname" "$temp_dir/minimal/mkdir" "$temp_dir/minimal/rmdir" "$temp_dir/minimal/realpath" "$temp_dir/minimal/go"
 	if [ -d "$fixture/build/.dev-lock" ]; then rmdir "$fixture/build/.dev-lock"; fi
 	if [ -d "$fixture/build/.build-lock" ]; then rmdir "$fixture/build/.build-lock"; fi
+	if [ -d "$fixture/.go" ]; then rmdir "$fixture/.go"; fi
 	rmdir -- "$fixture/build/tools" "$fixture/build/dev" "$fixture/build" "$fixture/scripts/lib" "$fixture/scripts" \
 		"$fixture/internal/gui/frontend" "$fixture/internal/gui" "$fixture/internal" "$fixture" \
 		"$tools" "$temp_dir/minimal" "$temp_dir/locale-dir" "$temp_dir"
@@ -40,6 +41,7 @@ ln -s "$temp_dir/locale-dir" "$temp_dir/locale-link"
 cat > "$tools/go" <<'EOF'
 #!/bin/sh
 set -eu
+if [ "$1" = -C ] && [ "$3" = version ]; then exit 0; fi
 printf 'go %s\n' "$*" >> "$TEST_LOG"
 [ "${GOROOT+x}" != x ] && [ "$CC" = gcc ] && [ "$CXX" = g++ ] &&
 	[ "$CGO_CFLAGS" = '' ] && [ "$CGO_CPPFLAGS" = '' ] &&

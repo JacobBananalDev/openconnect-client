@@ -13,6 +13,7 @@ cleanup() {
 		"$tools/go" "$tools/npm" "$tools/pkg-config" "$tools/mv" "$temp_dir/log" "$temp_dir/output" \
 		"$temp_dir/minimal/dirname" "$temp_dir/minimal/mkdir" "$temp_dir/minimal/rm" \
 		"$temp_dir/minimal/rmdir" "$temp_dir/minimal/mktemp" "$temp_dir/minimal/go"
+	if [ -d "$fixture/.go" ]; then rmdir "$fixture/.go"; fi
 	rmdir -- "$fixture/scripts/lib" "$fixture/scripts" "$fixture/internal/gui/frontend" \
 		"$fixture/internal/gui/web/dist" "$fixture/internal/gui/web" "$fixture/internal/gui" \
 		"$fixture/internal" "$fixture/build/tools" "$fixture/build" "$fixture" "$tools" "$temp_dir/minimal" "$temp_dir"
@@ -40,6 +41,7 @@ EOF
 cat > "$tools/go" <<'EOF'
 #!/bin/sh
 set -eu
+if [ "$1" = -C ] && [ "$3" = version ]; then exit 0; fi
 printf 'go %s\n' "$*" >> "$TEST_LOG"
 [ "${GOROOT+x}" != x ] && [ "$CC" = gcc ] && [ "$CXX" = g++ ] &&
 	[ "$CGO_CFLAGS" = '' ] && [ "$CGO_CPPFLAGS" = '' ] &&

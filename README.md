@@ -31,6 +31,16 @@ cd openconnect-client
 ./scripts/shell.sh
 ```
 
+The shell uses a pure Guix environment to avoid inheriting another project's
+Go and compiler settings. It preserves desktop, terminal, and SSH-agent
+settings, and appends the host directories containing detected `code`,
+`codium`, `cursor`, and `openconnect` executables to the Guix `PATH`. Other
+executables in those directories remain accessible. Go's persistent environment
+configuration is disabled in this shell.
+The Guix manifest provides locale data for the preserved locale settings.
+`OPENCONNECT_PATH`, if set, is preserved. Exit any active Guix shell before
+starting this one.
+
 **Inside the project shell:**
 
 ```bash
@@ -60,7 +70,11 @@ again before using them. Existing binaries may be stale if the environment
 check or lock acquisition fails. Rebuild after source changes or branch
 switches. For Go builds, the task clears inherited `GOROOT`, `CGO_CFLAGS`,
 `CGO_CPPFLAGS`, `CGO_CXXFLAGS` and `CGO_LDFLAGS`, and uses the project
-environment's GCC/G++ and local Go toolchain.
+environment's GCC/G++ and the Go toolchain selected by `go.mod`.
+The runner prepares the Go toolchain on startup and stores downloaded
+toolchains and modules in the ignored `.go/` directory. Go downloads the
+toolchain specified by `go.mod` only when the Guix-provided version is too old.
+The Go build cache remains shared. Explicit help commands do not prepare Go.
 If an interrupted build leaves `build/.build-lock` behind, remove that empty
 directory only after confirming no build is running.
 
@@ -156,6 +170,12 @@ export OPENCONNECT_PATH=/custom/path/to/openconnect
 
 ### Available Commands
 
+Run `./run.ysh list-tasks` to see grouped tasks, or `./run.ysh TASK -h` /
+`./run.ysh TASK --help` for descriptions, options and examples. The
+`./run.ysh help TASK` form also works. These help commands work outside the
+project shell when YSH is available. The terminal task list uses color; set
+`NO_COLOR=1` to disable it. Redirected output stays plain.
+
 **Build and Run:**
 ```bash
 ./run.ysh build          # Compile build/occlient, build/occlientd and build/occlient-gui
@@ -195,6 +215,7 @@ replace the default `./...` target and are forwarded to Go. The existing
 
 **Code Quality:**
 ```bash
+./run.ysh tidy           # Update go.mod and go.sum
 ./run.ysh fmt            # Format code (gofmt)
 ./run.ysh lint           # Lint with go vet
 ./run.ysh vuln           # Security scan (govulncheck)
