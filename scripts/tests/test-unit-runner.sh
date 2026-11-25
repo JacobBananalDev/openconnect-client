@@ -3,7 +3,7 @@ set -eu
 
 cd "$(dirname "$0")/../.."
 temp_dir=$(mktemp -d)
-trap 'rm -f -- "$temp_dir/go" "$temp_dir/args" "$temp_dir/expected" "$temp_dir/output"; rmdir -- "$temp_dir"' EXIT
+trap 'rm -f -- "$temp_dir/go" "$temp_dir/args" "$temp_dir/expected" "$temp_dir/output"; rmdir -- "$temp_dir"' 0
 
 cat > "$temp_dir/go" <<'EOF'
 #!/bin/sh

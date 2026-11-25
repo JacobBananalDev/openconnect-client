@@ -105,7 +105,13 @@ proc _print-task-help(task_name) {
 	exit 2
 }
 
-if (len(ARGV) === 0 or ARGV[0] === 'list-tasks' or ARGV[0] === '--help' or ARGV[0] === '-h') {
+if (len(ARGV) === 0) {
+	_require_project_environment
+	_print-task-list
+	exit
+}
+
+if (ARGV[0] === 'list-tasks' or ARGV[0] === '--help' or ARGV[0] === '-h') {
 	_print-task-list
 	exit
 }

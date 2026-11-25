@@ -1,66 +1,44 @@
-#!/bin/bash
-# Pre-commit hook: format check, linting, tests, and security scan
-# Prevents commits with formatting issues, test failures, or vulnerabilities
+#!/bin/sh
+set -eu
 
-set -e
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
 
-echo "Running pre-commit checks..."
+exec 1>&2
 
-# Check if we're in the project environment
-if [ -z "$OPENCONNECT_CLIENT_ENV" ]; then
-    echo "⚠ Warning: Project environment not active. Run: ./scripts/shell.sh"
-    echo "  Skipping pre-commit checks."
-    exit 0
+if git rev-parse --verify HEAD >/dev/null 2>&1; then
+	against=HEAD
+else
+	against=$(git hash-object -t tree /dev/null)
 fi
 
-# Format check: ensure code is formatted
-echo "Checking code formatting..."
-if ! go fmt ./... >/dev/null 2>&1; then
-    echo "✗ Code is not properly formatted. Run: ./run.ysh fmt"
-    exit 1
+if [ "$(git config --type=bool hooks.allownonascii)" != "true" ] &&
+	[ "$(git diff --cached --name-only --diff-filter=A -z "$against" |
+		LC_ALL=C tr -d '[ -~]\0' | wc -c)" -ne 0 ]
+then
+	echo "Error: non-ASCII staged file name." >&2
+	echo "Rename the file or run: git config hooks.allownonascii true" >&2
+	exit 1
 fi
 
-# Verify no unformatted files would be staged
-UNFORMATTED=$(gofmt -l . 2>/dev/null | grep -c "\.go$" || true)
-if [ "$UNFORMATTED" -gt 0 ]; then
-    echo "✗ Found $UNFORMATTED unformatted Go files:"
-    gofmt -l .
-    echo "  Run: ./run.ysh fmt"
-    exit 1
-fi
+# Check only staged paths that will enter this commit.
+git diff --cached --name-only --diff-filter=ACMR "$against" -- |
+	while IFS= read -r path; do
+		base=${path##*/}
+		base=$(printf '%s' "$base" |
+			tr '[:lower:]' '[:upper:]')
+		base=${base%.*}
+		case "$base" in
+			CON|PRN|AUX|NUL|CLOCK\$|COM[0-9]|LPT[0-9])
+				echo "Error: Windows-reserved staged file name: '$path'" >&2
+				exit 1
+				;;
+		esac
+	done
 
-# Linting: go vet checks
-echo "Running linter (go vet)..."
-if ! go vet ./...; then
-    echo "✗ Linting failed. Fix the errors above."
-    exit 1
-fi
+./run.ysh fmt
+./run.ysh lint
+./run.ysh unit-test
+./run.ysh vuln
 
-# Run all tests
-echo "Running tests..."
-if ! go test ./...; then
-    echo "✗ Tests failed. Fix failures before committing."
-    exit 1
-fi
-
-# Run security vulnerability check
-echo "Running security scan (govulncheck)..."
-if ! go run golang.org/x/vuln/cmd/govulncheck@latest ./...; then
-    echo "✗ Security vulnerabilities detected. Fix before committing."
-    exit 1
-fi
-
-# Basic secret check: reject files with obvious secrets
-echo "Checking for accidental secrets..."
-if git diff --cached --name-only | grep -qE '\.(go|md|yml|yaml)$'; then
-    # Check staged files for obvious patterns (AWS keys, API keys, passwords)
-    if git diff --cached | grep -iE '(password|api[_-]?key|secret|token|aws|credentials)\s*=' | grep -v "example" | grep -qv "//" ; then
-        echo "⚠ Warning: Potential secrets detected in staged changes!"
-        echo "  Review the diff carefully before committing."
-        echo "  Use --no-verify to bypass this check (not recommended)."
-        exit 1
-    fi
-fi
-
-echo "✓ Pre-commit checks passed"
-exit 0
+exec git diff-index --check --cached "$against" --

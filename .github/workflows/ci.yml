@@ -1,4 +1,4 @@
-name: Test, Lint, and Build
+name: CI
 
 on:
   push:
@@ -9,61 +9,161 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  quality:
-    runs-on: ubuntu-latest
-    
+  build:
+    name: Build all applications
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
     steps:
-      - name: Check out code
+      - name: Check out source
         uses: actions/checkout@v4
-      
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version-file: go.mod
-      
-      - name: Install OpenConnect
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26.12.1
+          cache: npm
+          cache-dependency-path: internal/gui/frontend/package-lock.json
+
+      - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y openconnect
-          echo "✓ OpenConnect installed"
-      
-      - name: Format check
+          sudo apt-get install --no-install-recommends -y \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev \
+            pkg-config
+
+      - name: Build frontend assets
+        working-directory: internal/gui/frontend
         run: |
-          if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
-            echo "❌ Code is not formatted. Run: gofmt -s -w ."
-            gofmt -s -d .
-            exit 1
-          fi
-          echo "✓ Code formatting check passed"
-      
-      - name: Lint (go vet)
-        run: |
-          go vet ./...
-          echo "✓ Linting passed"
-      
-      - name: Run tests
-        run: |
-          go test ./...
-          echo "✓ Tests passed"
-      
-      - name: Security scan (govulncheck)
-        run: |
-          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-          echo "✓ Security scan passed"
-      
-      - name: Build binaries
+          npm ci
+          npm run build
+
+      - name: Build CLI, daemon, and desktop GUI
         run: |
           mkdir -p build
           go build -o build/occlient ./cmd/occlient
           go build -o build/occlientd ./cmd/occlientd
-          echo "✓ Binaries built successfully"
-      
-      - name: Verify binaries
+          go build -tags production -o build/occlient-gui ./cmd/occlient-gui
+
+      - name: Verify build artifacts
         run: |
+          test -x build/occlient
+          test -x build/occlientd
+          test -x build/occlient-gui
           ./build/occlient --version
-          ./build/occlient -h | grep -q "Usage:"
-          ./build/occlient connect -h | grep -q "Usage:"
-          test -x ./build/occlientd
-          go version -m ./build/occlientd | grep -Fq 'github.com/JacobBananalDev/openconnect-client/cmd/occlientd'
-          echo "✓ Binary verification passed"
+          ./build/occlient -h | grep -q 'Usage:'
+          ./build/occlient connect -h | grep -q 'Usage:'
+          go version -m ./build/occlientd |
+            grep -Fq 'github.com/JacobBananalDev/openconnect-client/cmd/occlientd'
+
+  test:
+    name: Go and frontend tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26.12.1
+          cache: npm
+          cache-dependency-path: internal/gui/frontend/package-lock.json
+
+      - name: Install native test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev \
+            openconnect \
+            pkg-config
+
+      - name: Run Go tests
+        run: go test ./...
+
+      - name: Run frontend tests
+        working-directory: internal/gui/frontend
+        run: |
+          npm ci
+          npm test
+
+  lint:
+    name: Formatting and static analysis
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install GUI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev \
+            pkg-config
+
+      - name: Check Go formatting
+        run: |
+          unformatted=$(gofmt -s -l .)
+          if [ -n "$unformatted" ]; then
+            printf 'Go files need formatting:\n%s\n' "$unformatted" >&2
+            exit 1
+          fi
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Check POSIX shell syntax
+        run: |
+          find scripts -type f -name '*.sh' -exec sh -n {} +
+          sh -n .githooks/pre-commit
+
+  vulnerability-check:
+    name: Vulnerability scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Scan Go dependencies and code
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

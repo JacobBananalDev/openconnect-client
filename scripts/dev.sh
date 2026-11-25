@@ -1,16 +1,16 @@
-#!/bin/bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
-script_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$script_dir/.."
 
-if [[ ${OPENCONNECT_CLIENT_ENV:-} != 1 ]]; then
+if [ "${OPENCONNECT_CLIENT_ENV:-}" != 1 ]; then
 	echo 'Error: the project environment is not active. Run: ./scripts/shell.sh' >&2
 	exit 1
 fi
-source scripts/lib/gui-env.sh
+. scripts/lib/gui-env.sh
 prepare_gui_environment
-if [[ -z ${DISPLAY:-} && -z ${WAYLAND_DISPLAY:-} ]]; then
+if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
 	echo 'Error: a graphical display is required for development mode.' >&2
 	exit 1
 fi
@@ -20,26 +20,27 @@ dev_lock=0
 watcher=
 interrupted=0
 cleanup() {
-	local status=$?
+	status=$?
 	set +e
-	if [[ $dev_lock == 1 ]]; then
+	if [ "$dev_lock" -eq 1 ]; then
 		rmdir -- build/.dev-lock || status=1
 	fi
-	if [[ $build_lock == 1 ]]; then
+	if [ "$build_lock" -eq 1 ]; then
 		rmdir -- build/.build-lock || status=1
 	fi
 	exit "$status"
 }
 forward_signal() {
 	interrupted=$1
-	if [[ -z $watcher ]]; then
+	if [ -z "$watcher" ]; then
 		exit "$interrupted"
 	fi
 	if kill -0 "$watcher" 2>/dev/null; then
 		kill -s INT "$watcher"
 	fi
+	exit "$interrupted"
 }
-trap cleanup EXIT
+trap cleanup 0
 trap 'forward_signal 130' INT
 trap 'forward_signal 143' TERM
 
@@ -75,12 +76,12 @@ export LD_LIBRARY_PATH="$libgcc_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 unset GOROOT
 export CC=gcc CXX=g++ CGO_CFLAGS= CGO_CPPFLAGS= CGO_CXXFLAGS= CGO_LDFLAGS= CGO_ENABLED=1 GOTOOLCHAIN=auto
 version=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)
-if [[ -z $version ]]; then
+if [ -z "$version" ]; then
 	echo 'Error: unable to determine the Wails module version from go.mod.' >&2
 	exit 1
 fi
 mkdir -p build/tools build/dev
-if [[ -x build/tools/wails3 ]]; then
+if [ -x build/tools/wails3 ]; then
 	if ! installed_version=$(./build/tools/wails3 version 2>&1); then
 		echo "Error: could not determine the project-local Wails CLI version: $installed_version" >&2
 		exit 1
@@ -88,14 +89,14 @@ if [[ -x build/tools/wails3 ]]; then
 else
 	installed_version=
 fi
-if [[ $installed_version != "$version" ]]; then
+if [ "$installed_version" != "$version" ]; then
 	echo "Installing project-local Wails CLI $version..."
 	GOBIN="$PWD/build/tools" go install "github.com/wailsapp/wails/v3/cmd/wails3@$version"
 	if ! installed_version=$(./build/tools/wails3 version 2>&1); then
 		echo "Error: could not determine the installed Wails CLI version: $installed_version" >&2
 		exit 1
 	fi
-	if [[ $installed_version != "$version" ]]; then
+	if [ "$installed_version" != "$version" ]; then
 		echo 'Error: the installed Wails CLI does not match go.mod.' >&2
 		exit 1
 	fi
@@ -106,22 +107,15 @@ fi
 	npm ci
 )
 
-set -m
 ./build/tools/wails3 dev -config scripts/wails-dev.yml -port 9245 &
 watcher=$!
-set +m
-while :; do
-	if wait "$watcher"; then
-		status=0
-	else
-		status=$?
-	fi
-	if ! kill -0 "$watcher" 2>/dev/null; then
-		break
-	fi
-done
+if wait "$watcher"; then
+	status=0
+else
+	status=$?
+fi
 watcher=
-if [[ $interrupted != 0 ]]; then
+if [ "$interrupted" -ne 0 ]; then
 	exit "$interrupted"
 fi
 exit "$status"

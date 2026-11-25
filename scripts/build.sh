@@ -1,10 +1,10 @@
-#!/bin/bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
-script_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$script_dir/.."
 
-if [[ ${OPENCONNECT_CLIENT_ENV:-} != 1 ]]; then
+if [ "${OPENCONNECT_CLIENT_ENV:-}" != 1 ]; then
 	echo 'Error: the project environment is not active. Run: ./scripts/shell.sh' >&2
 	exit 1
 fi
@@ -14,7 +14,7 @@ if ! mkdir build/.build-lock 2>/dev/null; then
 	echo 'Error: another build may be running, or build/.build-lock is stale; existing binaries may be stale.' >&2
 	exit 1
 fi
-if [[ -e build/.dev-lock ]]; then
+if [ -e build/.dev-lock ]; then
 	rmdir -- build/.build-lock
 	echo 'Error: development mode may be running, or build/.dev-lock is stale; stop it before building.' >&2
 	exit 1
@@ -23,27 +23,27 @@ fi
 stage=
 success=0
 cleanup() {
-	local status=$?
+	status=$?
 	set +e
-	if [[ -n $stage ]]; then
+	if [ -n "$stage" ]; then
 		rm -f -- "$stage/occlient" "$stage/occlientd" "$stage/occlient-gui" || status=1
 		rmdir -- "$stage" || status=1
 	fi
 	rmdir -- build/.build-lock || status=1
-	if [[ $success == 1 && $status == 0 ]]; then
+	if [ "$success" -eq 1 ] && [ "$status" -eq 0 ]; then
 		echo 'Built: build/occlient, build/occlientd and build/occlient-gui'
 	else
 		if ! rm -f -- build/occlient build/occlientd build/occlient-gui; then
 			echo 'Error: could not remove all incomplete project binaries.' >&2
 		fi
 		echo 'Error: build failed; run ./run.ysh build again before using project binaries.' >&2
-		if [[ $status == 0 ]]; then
+		if [ "$status" -eq 0 ]; then
 			status=1
 		fi
 	fi
 	exit "$status"
 }
-trap cleanup EXIT
+trap cleanup 0
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -70,19 +70,20 @@ export LD_LIBRARY_PATH="$libgcc_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 	npm ci
 	npm run build
 )
-if [[ ! -s internal/gui/web/dist/index.html ]]; then
+if [ ! -s internal/gui/web/dist/index.html ]; then
 	echo 'Error: frontend build did not produce an index.html.' >&2
 	exit 1
 fi
 
 for name in occlient occlientd occlient-gui; do
-	tags=()
-	if [[ $name == occlient-gui ]]; then
-		tags=(-tags production)
+	if [ "$name" = occlient-gui ]; then
+		env -u GOROOT CC=gcc CXX=g++ CGO_CFLAGS= CGO_CPPFLAGS= CGO_CXXFLAGS= CGO_LDFLAGS= CGO_ENABLED=1 GOTOOLCHAIN=auto \
+			go build -tags production -o "$stage/$name" "./cmd/$name"
+	else
+		env -u GOROOT CC=gcc CXX=g++ CGO_CFLAGS= CGO_CPPFLAGS= CGO_CXXFLAGS= CGO_LDFLAGS= CGO_ENABLED=1 GOTOOLCHAIN=auto \
+			go build -o "$stage/$name" "./cmd/$name"
 	fi
-	env -u GOROOT CC=gcc CXX=g++ CGO_CFLAGS= CGO_CPPFLAGS= CGO_CXXFLAGS= CGO_LDFLAGS= CGO_ENABLED=1 GOTOOLCHAIN=auto \
-		go build "${tags[@]}" -o "$stage/$name" "./cmd/$name"
-	if [[ ! -f $stage/$name || ! -x $stage/$name ]]; then
+	if [ ! -f "$stage/$name" ] || [ ! -x "$stage/$name" ]; then
 		echo "Error: build did not produce an executable $name." >&2
 		exit 1
 	fi
@@ -92,7 +93,7 @@ for name in occlient occlientd occlient-gui; do
 	mv -- "$stage/$name" "build/$name"
 done
 for name in occlient occlientd occlient-gui; do
-	if [[ ! -f build/$name || ! -x build/$name ]]; then
+	if [ ! -f "build/$name" ] || [ ! -x "build/$name" ]; then
 		echo "Error: published artifact build/$name is not executable." >&2
 		exit 1
 	fi

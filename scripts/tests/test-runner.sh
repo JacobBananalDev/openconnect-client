@@ -1,12 +1,12 @@
-#!/bin/bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
-repo_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 temp_dir=$(mktemp -d)
 fixture=$temp_dir/project
 child_pid=
 cleanup() {
-	if [[ -n $child_pid ]] && kill -0 "$child_pid" 2>/dev/null; then
+	if [ -n "$child_pid" ] && kill -0 "$child_pid" 2>/dev/null; then
 		kill "$child_pid" 2>/dev/null || true
 		wait "$child_pid" 2>/dev/null || true
 	fi
@@ -15,12 +15,12 @@ cleanup() {
 		"$temp_dir/fake-binary" "$temp_dir/args" "$temp_dir/expected" \
 		"$temp_dir/stdout" "$temp_dir/stderr" "$temp_dir/locale" "$temp_dir/ready" \
 		"$temp_dir/signal" "$temp_dir/locale-link"
-	if [[ -d $fixture/build/.build-lock ]]; then
+	if [ -d "$fixture/build/.build-lock" ]; then
 		rmdir -- "$fixture/build/.build-lock"
 	fi
 	rmdir -- "$fixture/scripts/lib" "$fixture/scripts" "$fixture/build" "$fixture" "$temp_dir/locale-dir" "$temp_dir"
 }
-trap cleanup EXIT
+trap cleanup 0
 
 mkdir -p "$fixture/scripts/lib" "$fixture/build" "$temp_dir/locale-dir"
 cp -- "$repo_root/run.ysh" "$fixture/run.ysh"
@@ -29,15 +29,15 @@ cp -- "$repo_root/scripts/lib/taskfile.ysh" "$fixture/scripts/lib/taskfile.ysh"
 cp -- "$repo_root/scripts/lib/gui-env.sh" "$fixture/scripts/lib/gui-env.sh"
 ln -s "$temp_dir/locale-dir" "$temp_dir/locale-link"
 cat > "$temp_dir/fake-binary" <<'EOF'
-#!/bin/bash
+#!/bin/sh
 set -eu
 printf '%s\n' "${0##*/}" "$@" > "$TEST_ARGS"
-if [[ ${GUIX_LOCPATH+x} ]]; then
+if [ "${GUIX_LOCPATH+x}" = x ]; then
 	printf 'SET:%s\n' "$GUIX_LOCPATH" > "$TEST_LOCALE"
 else
 	echo UNSET > "$TEST_LOCALE"
 fi
-if [[ ${TEST_WAIT:-0} == 1 ]]; then
+if [ "${TEST_WAIT:-0}" = 1 ]; then
 	trap 'echo TERM > "$TEST_SIGNAL"; exit 43' TERM
 	trap 'echo INT > "$TEST_SIGNAL"; exit 44' INT
 	echo "$$" > "$TEST_READY"
@@ -58,12 +58,20 @@ export OPENCONNECT_CLIENT_ENV=1 TEST_ARGS="$temp_dir/args"
 export TEST_LOCALE="$temp_dir/locale" TEST_READY="$temp_dir/ready" TEST_SIGNAL="$temp_dir/signal"
 cd "$fixture"
 
+if OPENCONNECT_CLIENT_ENV=0 ./run.ysh > "$temp_dir/stdout" 2> "$temp_dir/stderr"; then
+	echo 'bare run.ysh accepted an inactive project environment' >&2
+	exit 1
+fi
+grep -q 'project environment is not active' "$temp_dir/stderr"
+./run.ysh > "$temp_dir/stdout"
+grep -q 'OpenConnect Client | Development Tasks' "$temp_dir/stdout"
+
 assert_call() {
-	local binary=$1
-	local subcommand=$2
+	binary=$1
+	subcommand=$2
 	shift 2
 	./run.ysh run "$@" > "$temp_dir/stdout" 2> "$temp_dir/stderr"
-	if [[ -n $subcommand ]]; then
+	if [ -n "$subcommand" ]; then
 		printf '%s\n' "$binary" "$subcommand" > "$temp_dir/expected"
 	else
 		printf '%s\n' "$binary" > "$temp_dir/expected"
@@ -157,16 +165,22 @@ OPENCONNECT_CLIENT_ENV=0 ./run.ysh run -h > "$temp_dir/stdout"
 grep -q -- '--daemon' "$temp_dir/stdout"
 cp -- "$temp_dir/fake-binary" build/occlient
 
-if [[ $EUID == 0 ]]; then
-	root_command=()
+if [ "$(id -u)" -eq 0 ]; then
+	root_command=
 elif command -v unshare >/dev/null 2>&1 && unshare --user --map-root-user true 2>/dev/null; then
-	root_command=(unshare --user --map-root-user)
+	root_command="unshare --user --map-root-user"
 else
-	root_command=()
+	root_command=
 	echo 'Skipping GUI root guard test: unprivileged user namespaces unavailable' >&2
 fi
-if [[ $EUID == 0 || ${#root_command[@]} -gt 0 ]]; then
-	if "${root_command[@]}" ./run.ysh run > "$temp_dir/stdout" 2> "$temp_dir/stderr"; then
+if [ "$(id -u)" -eq 0 ] || [ -n "$root_command" ]; then
+	if [ -n "$root_command" ]; then
+		root_command_arg=$root_command
+		if unshare --user --map-root-user ./run.ysh run > "$temp_dir/stdout" 2> "$temp_dir/stderr"; then
+			echo 'root GUI launch accepted' >&2
+			exit 1
+		fi
+	elif ./run.ysh run > "$temp_dir/stdout" 2> "$temp_dir/stderr"; then
 		echo 'root GUI launch accepted' >&2
 		exit 1
 	fi
@@ -188,30 +202,33 @@ if TEST_STATUS=42 ./run.ysh run --status > "$temp_dir/stdout" 2> "$temp_dir/stde
 	echo 'nonzero target exit was lost' >&2
 	exit 1
 else
-	[[ $? == 42 ]]
+	[ "$?" -eq 42 ]
 fi
 grep -qx 'target stdout' "$temp_dir/stdout"
 grep -qx 'target stderr' "$temp_dir/stderr"
 
 for spec in '--daemon TERM 43' '--gui INT 44'; do
-	read -r selector signal expected_status <<< "$spec"
+	set -- $spec
+	selector=$1
+	signal=$2
+	expected_status=$3
 	rm -f -- "$TEST_READY" "$TEST_SIGNAL"
-	set -m
 	TEST_WAIT=1 ./run.ysh run "$selector" > "$temp_dir/stdout" 2> "$temp_dir/stderr" &
 	child_pid=$!
-	set +m
-	for _ in {1..100}; do
-		[[ -s $TEST_READY ]] && break
+	i=0
+	while [ "$i" -lt 100 ]; do
+		[ -s "$TEST_READY" ] && break
 		sleep 0.05
+		i=$((i + 1))
 	done
-	[[ -s $TEST_READY ]] || { echo "target did not start: $selector" >&2; exit 1; }
-	[[ $(< "$TEST_READY") == "$child_pid" ]] || { echo 'target did not replace wrapper process' >&2; exit 1; }
+	[ -s "$TEST_READY" ] || { echo "target did not start: $selector" >&2; exit 1; }
+	[ "$(cat "$TEST_READY")" = "$child_pid" ] || { echo 'target did not replace wrapper process' >&2; exit 1; }
 	kill -s "$signal" "$child_pid"
 	if wait "$child_pid"; then
 		echo "signal handler status lost: $signal" >&2
 		exit 1
 	else
-		[[ $? == "$expected_status" ]]
+		[ "$?" -eq "$expected_status" ]
 	fi
 	child_pid=
 	grep -qx "$signal" "$TEST_SIGNAL"

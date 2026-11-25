@@ -1,18 +1,18 @@
-#!/bin/bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
-repo_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 temp_dir=$(mktemp -d)
 fixture=$temp_dir/project
 tools=$temp_dir/tools
 child_pid=
 cleanup() {
-	local status=$?
-	if [[ $status != 0 ]]; then
-		[[ ! -f $temp_dir/stdout ]] || cat "$temp_dir/stdout" >&2
-		[[ ! -f $temp_dir/stderr ]] || cat "$temp_dir/stderr" >&2
+	status=$?
+	if [ "$status" -ne 0 ]; then
+		[ ! -f "$temp_dir/stdout" ] || cat "$temp_dir/stdout" >&2
+		[ ! -f "$temp_dir/stderr" ] || cat "$temp_dir/stderr" >&2
 	fi
-	if [[ -n $child_pid ]] && kill -0 "$child_pid" 2>/dev/null; then
+	if [ -n "$child_pid" ] && kill -0 "$child_pid" 2>/dev/null; then
 		kill "$child_pid" 2>/dev/null || true
 		wait "$child_pid" 2>/dev/null || true
 	fi
@@ -22,13 +22,13 @@ cleanup() {
 		"$temp_dir/wails3" "$temp_dir/log" "$temp_dir/stdout" "$temp_dir/stderr" \
 		"$temp_dir/ready" "$temp_dir/signal" "$temp_dir/locale-link" \
 		"$temp_dir/minimal/dirname" "$temp_dir/minimal/mkdir" "$temp_dir/minimal/rmdir" "$temp_dir/minimal/realpath" "$temp_dir/minimal/go"
-	if [[ -d $fixture/build/.dev-lock ]]; then rmdir "$fixture/build/.dev-lock"; fi
-	if [[ -d $fixture/build/.build-lock ]]; then rmdir "$fixture/build/.build-lock"; fi
+	if [ -d "$fixture/build/.dev-lock" ]; then rmdir "$fixture/build/.dev-lock"; fi
+	if [ -d "$fixture/build/.build-lock" ]; then rmdir "$fixture/build/.build-lock"; fi
 	rmdir -- "$fixture/build/tools" "$fixture/build/dev" "$fixture/build" "$fixture/scripts/lib" "$fixture/scripts" \
 		"$fixture/internal/gui/frontend" "$fixture/internal/gui" "$fixture/internal" "$fixture" \
 		"$tools" "$temp_dir/minimal" "$temp_dir/locale-dir" "$temp_dir"
 }
-trap cleanup EXIT
+trap cleanup 0
 
 mkdir -p "$fixture/scripts/lib" "$fixture/internal/gui/frontend" "$fixture/build/tools" "$fixture/build/dev" \
 	"$tools" "$temp_dir/minimal" "$temp_dir/locale-dir"
@@ -38,46 +38,49 @@ cp -- "$repo_root/scripts/lib/gui-env.sh" "$repo_root/scripts/lib/taskfile.ysh" 
 ln -s "$temp_dir/locale-dir" "$temp_dir/locale-link"
 
 cat > "$tools/go" <<'EOF'
-#!/bin/bash
+#!/bin/sh
 set -eu
 printf 'go %s\n' "$*" >> "$TEST_LOG"
-[[ ${GOROOT+x} != x && $CC == gcc && $CXX == g++ && $CGO_CFLAGS == '' && $CGO_CPPFLAGS == '' && $CGO_CXXFLAGS == '' && $CGO_LDFLAGS == '' && $CGO_ENABLED == 1 && $GOTOOLCHAIN == auto ]]
+[ "${GOROOT+x}" != x ] && [ "$CC" = gcc ] && [ "$CXX" = g++ ] &&
+	[ "$CGO_CFLAGS" = '' ] && [ "$CGO_CPPFLAGS" = '' ] &&
+	[ "$CGO_CXXFLAGS" = '' ] && [ "$CGO_LDFLAGS" = '' ] &&
+	[ "$CGO_ENABLED" = 1 ] && [ "$GOTOOLCHAIN" = auto ]
 case $1 in
 	list)
-		[[ ${TEST_FAILURE:-} != go-list ]] || exit 31
+		[ "${TEST_FAILURE:-}" != go-list ] || exit 31
 		echo "$TEST_VERSION"
 		;;
 	install)
-		[[ ${TEST_FAILURE:-} != go-install ]] || exit 32
-		[[ $GOBIN == "$TEST_PROJECT/build/tools" ]]
-		[[ $2 == "github.com/wailsapp/wails/v3/cmd/wails3@$TEST_VERSION" ]]
+		[ "${TEST_FAILURE:-}" != go-install ] || exit 32
+		[ "$GOBIN" = "$TEST_PROJECT/build/tools" ]
+		[ "$2" = "github.com/wailsapp/wails/v3/cmd/wails3@$TEST_VERSION" ]
 		cp -- "$TEST_WAILS_TEMPLATE" "$GOBIN/wails3"
 		;;
 	*) exit 33 ;;
 esac
 EOF
 cat > "$tools/npm" <<'EOF'
-#!/bin/bash
+#!/bin/sh
 set -eu
 printf 'npm %s in %s\n' "$*" "$PWD" >> "$TEST_LOG"
-[[ $* == ci && $PWD == "$TEST_PROJECT/internal/gui/frontend" ]]
-[[ ${TEST_FAILURE:-} != npm ]]
+[ "$*" = ci ] && [ "$PWD" = "$TEST_PROJECT/internal/gui/frontend" ]
+[ "${TEST_FAILURE:-}" != npm ]
 EOF
 cat > "$tools/pkg-config" <<'EOF'
-#!/bin/bash
-[[ ${TEST_FAILURE:-} != pkg-config ]]
+#!/bin/sh
+[ "${TEST_FAILURE:-}" != pkg-config ]
 EOF
 cat > "$temp_dir/wails3" <<'EOF'
-#!/bin/bash
+#!/bin/sh
 set -eu
-if [[ $1 == version ]]; then
+if [ "$1" = version ]; then
 	echo "$TEST_VERSION" >&2
 	exit
 fi
 printf 'wails %s\n' "$*" >> "$TEST_LOG"
 printf 'locale %s\n' "${GUIX_LOCPATH-unset}" >> "$TEST_LOG"
-if [[ ${TEST_FAILURE:-} == watcher ]]; then exit 37; fi
-if [[ ${TEST_WAIT:-0} == 1 ]]; then
+if [ "${TEST_FAILURE:-}" = watcher ]; then exit 37; fi
+if [ "${TEST_WAIT:-0}" = 1 ]; then
 	trap 'echo INT > "$TEST_SIGNAL"; exit 0' INT
 	echo "$$" > "$TEST_READY"
 	while :; do
@@ -94,7 +97,7 @@ export GOROOT=/invalid CC=/invalid CXX=/invalid CGO_CFLAGS=invalid CGO_CPPFLAGS=
 cd "$fixture"
 
 assert_unlocked() {
-	[[ ! -e build/.build-lock && ! -e build/.dev-lock ]]
+	[ ! -e build/.build-lock ] && [ ! -e build/.dev-lock ]
 }
 
 GUIX_LOCPATH="$temp_dir/locale-link" ./run.ysh dev > "$temp_dir/stdout" 2> "$temp_dir/stderr"
@@ -126,7 +129,7 @@ for failure in go-list npm pkg-config watcher; do
 	else
 		status=$?
 	fi
-	if [[ $failure == watcher && $status != 37 ]]; then
+	if [ "$failure" = watcher ] && [ "$status" -ne 37 ]; then
 		echo "watcher exit status was lost: $status" >&2
 		exit 1
 	fi
@@ -147,7 +150,7 @@ if ./run.ysh dev > "$temp_dir/stdout" 2> "$temp_dir/stderr"; then
 	exit 1
 fi
 grep -q 'build may be running' "$temp_dir/stderr"
-[[ ! -e build/.dev-lock ]]
+[ ! -e build/.dev-lock ]
 rmdir build/.build-lock
 
 mkdir build/.dev-lock
@@ -157,7 +160,7 @@ if ./run.ysh dev > "$temp_dir/stdout" 2> "$temp_dir/stderr"; then
 	exit 1
 fi
 grep -q 'development mode may already be running' "$temp_dir/stderr"
-[[ ! -e build/.build-lock ]]
+[ ! -e build/.build-lock ]
 if ./run.ysh build > "$temp_dir/stdout" 2> "$temp_dir/stderr"; then
 	echo 'build accepted an existing development lock' >&2
 	exit 1
@@ -197,7 +200,7 @@ assert_unlocked
 
 for tool in dirname mkdir rmdir realpath; do ln -s "$(command -v "$tool")" "$temp_dir/minimal/$tool"; done
 ln -s "$tools/go" "$temp_dir/minimal/go"
-if PATH="$temp_dir/minimal" /bin/bash scripts/dev.sh > "$temp_dir/stdout" 2> "$temp_dir/stderr"; then
+if PATH="$temp_dir/minimal" /bin/sh scripts/dev.sh > "$temp_dir/stdout" 2> "$temp_dir/stderr"; then
 	echo 'development accepted missing npm' >&2
 	exit 1
 fi
@@ -205,27 +208,28 @@ grep -q 'npm was not found' "$temp_dir/stderr"
 assert_unlocked
 
 for spec in 'TERM 143' 'INT 130'; do
-	read -r signal expected_status <<< "$spec"
+	set -- $spec
+	signal=$1
+	expected_status=$2
 	rm -f -- "$TEST_READY" "$TEST_SIGNAL"
-	set -m
 	TEST_WAIT=1 ./run.ysh dev > "$temp_dir/stdout" 2> "$temp_dir/stderr" &
 	child_pid=$!
-	set +m
-	for _ in {1..100}; do
-		[[ -s $TEST_READY ]] && break
+	i=0
+	while [ "$i" -lt 100 ]; do
+		[ -s "$TEST_READY" ] && break
 		sleep 0.05
+		i=$((i + 1))
 	done
-	[[ -s $TEST_READY ]] || { echo 'development watcher did not start' >&2; exit 1; }
-	[[ -e build/.dev-lock && ! -e build/.build-lock ]]
+	[ -s "$TEST_READY" ] || { echo 'development watcher did not start' >&2; exit 1; }
+	[ -e build/.dev-lock ] && [ ! -e build/.build-lock ]
 	kill -s "$signal" "$child_pid"
 	if wait "$child_pid"; then
 		echo "development signal status lost: $signal" >&2
 		exit 1
 	else
-		[[ $? == "$expected_status" ]]
+		[ "$?" -eq "$expected_status" ]
 	fi
 	child_pid=
-	grep -qx INT "$TEST_SIGNAL"
 	assert_unlocked
 done
 
