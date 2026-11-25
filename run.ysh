@@ -74,32 +74,75 @@ proc editor {
 	$editor @ARGV
 }
 
-## usage: ./run.ysh build
+## usage: ./run.ysh build-prod
 ## category: Build and run
-## summary: Build the CLI, daemon and desktop GUI in build/
+## summary: Build all applications with the production-tagged GUI
 ## description:
 ## Installs locked frontend dependencies locally and builds all three binaries.
 ## Once the build lock is acquired, a failed build removes the project binaries.
 ## examples:
-## ./run.ysh build
-proc build {
+## ./run.ysh build-prod
+proc build-prod {
 	_require_project_environment
-	bash scripts/build.sh
+	if (len(ARGV) > 0) {
+		_err 'Usage: ./run.ysh build-prod' (2)
+	}
+	bash scripts/build.sh prod
 }
 
-## usage: ./run.ysh dev
+## usage: ./run.ysh build-dev
+## category: Build and run
+## summary: Generate bindings and build development binaries in build/dev/
+## description:
+## Uses a local Wails CLI and installs locked frontend dependencies locally.
+## The development GUI can honor FRONTEND_DEVSERVER_URL.
+## examples:
+## ./run.ysh build-dev
+proc build-dev {
+	_require_project_environment
+	if (len(ARGV) > 0) {
+		_err 'Usage: ./run.ysh build-dev' (2)
+	}
+	bash scripts/build.sh dev
+}
+
+## usage: ./run.ysh build
+## visibility: internal
+## summary: Alias for build-prod
+proc build {
+	_require_project_environment
+	bash scripts/build.sh prod
+}
+
+## usage: ./run.ysh watch-gui
 ## category: Build and run
 ## summary: Run the desktop GUI with development reloads
 ## description:
-## Uses project-local Wails and Vite tools. Builds a separate development GUI,
-## watches Go files and serves the frontend on 127.0.0.1:9245.
+## Generates bindings with project-local Wails, then watches Go and frontend
+## files and serves the frontend on 127.0.0.1:9245.
+## Run as an unprivileged user in the project environment.
+## examples:
+## ./run.ysh watch-gui
+proc watch-gui {
+	_require_project_environment
+	if (len(ARGV) > 0) {
+		_err 'Usage: ./run.ysh watch-gui' (2)
+	}
+	exec bash scripts/dev.sh
+}
+
+## usage: ./run.ysh dev
+## visibility: internal
+## summary: Run the desktop GUI with development reloads (alias for watch-gui)
+## description:
+## Generates bindings and launches the native GUI with Go and frontend reloads.
 ## Run as an unprivileged user in the project environment.
 ## examples:
 ## ./run.ysh dev
 proc dev {
 	_require_project_environment
 	if (len(ARGV) > 0) {
-		_err 'Usage: ./run.ysh dev' 2
+		_err 'Usage: ./run.ysh dev' (2)
 	}
 	exec bash scripts/dev.sh
 }
@@ -111,7 +154,7 @@ proc dev {
 ## With no selector, launch the GUI. Select one operation first; a second
 ## immediate selector is rejected. Other arguments are forwarded unchanged.
 ## An optional -- immediately after the selector ends wrapper parsing and is
-## removed. Build first with ./run.ysh build.
+## removed. Build first with ./run.ysh build-prod.
 ## options:
 ## --gui                Launch the desktop GUI.
 ## -c, --connect        Run CLI connect (use --background for the daemon).
@@ -126,40 +169,59 @@ proc dev {
 ## ./run.ysh run --status
 ## ./run.ysh run --connect --server vpn.example.com --background
 proc run {
+	_run 'build' 'build-prod' @ARGV
+}
+
+## usage: ./run.ysh run-dev [SELECTOR [--] [ARG...]]
+## category: Build and run
+## summary: Run development-build GUI, CLI or daemon
+## description:
+## Uses build/dev binaries and the same selectors and argument forwarding as
+## run. Build first with ./run.ysh build-dev.
+## examples:
+## ./run.ysh run-dev
+## ./run.ysh run-dev --status
+proc run-dev {
+	_run 'build/dev' 'build-dev' @ARGV
+}
+
+proc _run {
 	_require_project_environment
-	var args = ARGV
-	var binary = 'build/occlient-gui'
-	var command = ['bash', 'scripts/run-gui.sh']
+	var output = ARGV[0]
+	var build_task = ARGV[1]
+	var args = ARGV[2:]
+	var binary = "$output/occlient-gui"
+	var command = ['bash', 'scripts/run-gui.sh', "./$binary"]
 	if (len(args) > 0) {
 		var selector = args[0]
 		setvar args = args[1:]
 		case $selector in
 			(--gui) ;;
 			(-c|--connect|connect)
-				setvar binary = 'build/occlient'
-				setvar command = ['./build/occlient', 'connect']
+				setvar binary = "$output/occlient"
+				setvar command = ["./$binary", 'connect']
 				;;
 			(-d|--disconnect|disconnect)
-				setvar binary = 'build/occlient'
-				setvar command = ['./build/occlient', 'disconnect']
+				setvar binary = "$output/occlient"
+				setvar command = ["./$binary", 'disconnect']
 				;;
 			(-s|--status|status)
-				setvar binary = 'build/occlient'
-				setvar command = ['./build/occlient', 'status']
+				setvar binary = "$output/occlient"
+				setvar command = ["./$binary", 'status']
 				;;
 			(-v|--version|version)
-				setvar binary = 'build/occlient'
-				setvar command = ['./build/occlient', '--version']
+				setvar binary = "$output/occlient"
+				setvar command = ["./$binary", '--version']
 				;;
 			(help)
-				setvar binary = 'build/occlient'
-				setvar command = ['./build/occlient', 'help']
+				setvar binary = "$output/occlient"
+				setvar command = ["./$binary", 'help']
 				;;
 			(--daemon)
-				setvar binary = 'build/occlientd'
-				setvar command = ['./build/occlientd']
+				setvar binary = "$output/occlientd"
+				setvar command = ["./$binary"]
 				;;
-			(*) _err "Unknown run selector: $selector. Run ./run.ysh run --help." 2 ;;
+			(*) _err "Unknown run selector: $selector. Run ./run.ysh run --help." (2) ;;
 		esac
 		if (len(args) > 0) {
 			if (args[0] === '--') {
@@ -167,7 +229,7 @@ proc run {
 			} else {
 				case $[args[0]] in
 					(--gui|-c|--connect|connect|-d|--disconnect|disconnect|-s|--status|status|--daemon|-v|--version|version)
-						_err 'Conflicting run selectors. Select only one operation.' 2
+						_err 'Conflicting run selectors. Select only one operation.' (2)
 						;;
 				esac
 			}
@@ -177,7 +239,7 @@ proc run {
 		_err 'A build may be running or its lock may be stale. Finish the build before launching.'
 	}
 	if ! test -f $binary || ! test -x $binary {
-		_err "$binary is missing or not executable. Run ./run.ysh build first."
+		_err "$binary is missing or not executable. Run ./run.ysh $build_task first."
 	}
 	exec @command @args
 }
@@ -187,6 +249,7 @@ proc _unit-test {
 	var args = ARGV
 	var options = []
 	var targets = ['./...']
+	var frontend = true
 	while (len(args) > 0) {
 		var arg = args[0]
 		setvar args = args[1:]
@@ -208,21 +271,28 @@ proc _unit-test {
 			(--)
 				if (len(args) > 0) {
 					setvar targets = args
+					setvar frontend = false
 				}
 				break
 				;;
 			(*) _err "Unknown unit test option: $arg" ;;
 		esac
 	}
-	go test -v -cover @options @targets
+	go test -v -cover @options @targets || return $?
+	if (frontend) {
+		if ! test -d internal/gui/frontend/node_modules {
+			npm --prefix internal/gui/frontend ci || return $?
+		}
+		npm --prefix internal/gui/frontend test
+	}
 }
 
 ## usage: ./run.ysh unit test [-r|--race] [-c|--count N] [-- GO_TEST_ARGS...]
-## category: Testing
-## summary: Run all unit tests with coverage
+## visibility: internal
+## summary: Alias for unit-test
 ## description:
-## Run verbose tests with coverage. Arguments after -- replace the default
-## ./... target and are forwarded to Go, including package and test flags.
+## Run Go and frontend tests. Arguments after -- select Go tests only and are
+## forwarded to Go, including package and test flags.
 ## options:
 ## -r, --race       Enable the race detector.
 ## -c, --count N    Run each test N times (positive integer).
@@ -243,9 +313,11 @@ proc unit {
 
 ## usage: ./run.ysh unit-test [-r|--race] [-c|--count N] [-- GO_TEST_ARGS...]
 ## category: Testing
-## summary: Alias for unit test
+## summary: Run Go and frontend unit tests
 ## description:
-## Accepts the same options and forwarded arguments as ./run.ysh unit test.
+## Runs Go tests with coverage and frontend tests once. If frontend dependencies
+## are absent, installs them locally. Arguments after -- select Go tests only.
+## -r/--race and -c/--count affect only Go tests.
 ## examples:
 ## ./run.ysh unit-test --count 3
 proc unit-test {

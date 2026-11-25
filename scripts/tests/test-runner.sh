@@ -12,18 +12,19 @@ cleanup() {
 	fi
 	rm -f -- "$fixture/run.ysh" "$fixture/scripts/run-gui.sh" "$fixture/scripts/lib/taskfile.ysh" "$fixture/scripts/lib/gui-env.sh" \
 		"$fixture/build/occlient" "$fixture/build/occlientd" "$fixture/build/occlient-gui" \
+		"$fixture/build/dev/occlient" "$fixture/build/dev/occlientd" "$fixture/build/dev/occlient-gui" \
 		"$temp_dir/fake-binary" "$temp_dir/go" "$temp_dir/go-log" "$temp_dir/args" "$temp_dir/expected" \
 		"$temp_dir/stdout" "$temp_dir/stdout-clean" "$temp_dir/stderr" "$temp_dir/locale" "$temp_dir/ready" \
-		"$temp_dir/signal" "$temp_dir/locale-link"
+		"$temp_dir/signal" "$temp_dir/locale-link" "$temp_dir/path"
 	if [ -d "$fixture/build/.build-lock" ]; then
 		rmdir -- "$fixture/build/.build-lock"
 	fi
 	if [ -d "$fixture/.go" ]; then rmdir "$fixture/.go"; fi
-	rmdir -- "$fixture/scripts/lib" "$fixture/scripts" "$fixture/build" "$fixture" "$temp_dir/locale-dir" "$temp_dir"
+	rmdir -- "$fixture/scripts/lib" "$fixture/scripts" "$fixture/build/dev" "$fixture/build" "$fixture" "$temp_dir/locale-dir" "$temp_dir"
 }
 trap cleanup 0
 
-mkdir -p "$fixture/scripts/lib" "$fixture/build" "$temp_dir/locale-dir"
+mkdir -p "$fixture/scripts/lib" "$fixture/build/dev" "$temp_dir/locale-dir"
 cp -- "$repo_root/run.ysh" "$fixture/run.ysh"
 cp -- "$repo_root/scripts/run-gui.sh" "$fixture/scripts/run-gui.sh"
 cp -- "$repo_root/scripts/lib/taskfile.ysh" "$fixture/scripts/lib/taskfile.ysh"
@@ -33,6 +34,7 @@ cat > "$temp_dir/fake-binary" <<'EOF'
 #!/bin/sh
 set -eu
 printf '%s\n' "${0##*/}" "$@" > "$TEST_ARGS"
+printf '%s\n' "$0" > "$TEST_PATH"
 if [ "${GUIX_LOCPATH+x}" = x ]; then
 	printf 'SET:%s\n' "$GUIX_LOCPATH" > "$TEST_LOCALE"
 else
@@ -63,9 +65,11 @@ EOF
 chmod +x "$temp_dir/go"
 for name in occlient occlientd occlient-gui; do
 	cp -- "$temp_dir/fake-binary" "$fixture/build/$name"
+	cp -- "$temp_dir/fake-binary" "$fixture/build/dev/$name"
 done
 export OPENCONNECT_CLIENT_ENV=1 TEST_ARGS="$temp_dir/args" PATH="$temp_dir:$PATH"
 export TEST_PROJECT="$fixture" TEST_GO_LOG="$temp_dir/go-log"
+export TEST_PATH="$temp_dir/path"
 export TEST_LOCALE="$temp_dir/locale" TEST_READY="$temp_dir/ready" TEST_SIGNAL="$temp_dir/signal"
 cd "$fixture"
 
@@ -94,8 +98,8 @@ diff -u "$temp_dir/stdout" "$temp_dir/expected"
 for heading in 'Build and run' 'Testing' 'Code quality'; do
 	grep -qx "$heading" "$temp_dir/stdout"
 done
-sed -n '/^Build and run$/,/^Testing$/p' "$temp_dir/stdout" | grep -q '^  build -'
-sed -n '/^Testing$/,/^Code quality$/p' "$temp_dir/stdout" | grep -q '^  unit -'
+sed -n '/^Build and run$/,/^Testing$/p' "$temp_dir/stdout" | grep -q '^  build-prod -'
+sed -n '/^Testing$/,/^Code quality$/p' "$temp_dir/stdout" | grep -q '^  unit-test -'
 sed -n '/^Code quality$/,$p' "$temp_dir/stdout" | grep -q '^  lint -'
 grep -Fq 'Run ./run.ysh TASK -h or ./run.ysh TASK --help for details.' "$temp_dir/stdout"
 if grep -q "$(printf '\033')" "$temp_dir/stdout"; then
@@ -174,6 +178,26 @@ for selector in -v --version version; do assert_call occlient --version "$select
 assert_call occlient help help
 assert_call occlientd '' --daemon
 
+for spec in '--gui occlient-gui' '--status occlient' '--daemon occlientd'; do
+	set -- $spec
+	./run.ysh run-dev "$1" > "$temp_dir/stdout" 2> "$temp_dir/stderr"
+	case $(cat "$TEST_PATH") in
+		"./build/dev/$2"|"$fixture/build/dev/$2") ;;
+		*) echo "wrong development binary:" >&2; cat "$TEST_PATH" >&2; exit 1 ;;
+	esac
+done
+./run.ysh run-dev connect --server 'vpn example' > "$temp_dir/stdout" 2> "$temp_dir/stderr"
+grep -Fqx './build/dev/occlient' "$TEST_PATH"
+printf '%s\n' occlient connect --server 'vpn example' > "$temp_dir/expected"
+diff -u "$temp_dir/expected" "$TEST_ARGS"
+rm -f build/dev/occlient-gui
+if ./run.ysh run-dev > "$temp_dir/stdout" 2> "$temp_dir/stderr"; then
+	echo 'run-dev accepted a missing development GUI' >&2
+	exit 1
+fi
+grep -q 'Run ./run.ysh build-dev first' "$temp_dir/stderr"
+cp -- "$temp_dir/fake-binary" build/dev/occlient-gui
+
 ./run.ysh run -c --server 'vpn example' --protocol pulse --background '' -- --status > "$temp_dir/stdout" 2> "$temp_dir/stderr"
 printf '%s\n' occlient connect --server 'vpn example' --protocol pulse --background '' -- --status > "$temp_dir/expected"
 diff -u "$temp_dir/expected" "$TEST_ARGS"
@@ -216,14 +240,14 @@ for name in occlient occlientd occlient-gui; do
 		echo "missing binary accepted: $name" >&2
 		exit 1
 	fi
-	grep -q 'Run ./run.ysh build first' "$temp_dir/stderr"
+	grep -q 'Run ./run.ysh build-prod first' "$temp_dir/stderr"
 	cp -- "$temp_dir/fake-binary" "build/$name"
 	chmod -x "build/$name"
 	if ./run.ysh run "$selector" > "$temp_dir/stdout" 2> "$temp_dir/stderr"; then
 		echo "non-executable binary accepted: $name" >&2
 		exit 1
 	fi
-	grep -q 'Run ./run.ysh build first' "$temp_dir/stderr"
+	grep -q 'Run ./run.ysh build-prod first' "$temp_dir/stderr"
 	chmod +x "build/$name"
 done
 

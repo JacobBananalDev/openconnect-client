@@ -9,26 +9,26 @@ Automated tests use fakes and temporary sockets unless otherwise noted.
 Enter the project environment with `./scripts/shell.sh`, then run:
 
 ```bash
-./run.ysh build
+./run.ysh build-prod
+./run.ysh build-dev
 ./build/occlient --version
 ./build/occlient -h
 ./build/occlient connect -h
 ./build/occlient status -h
 ./build/occlient disconnect -h
-./run.ysh unit test
-./run.ysh unit test --race
+./run.ysh unit-test
+./run.ysh unit-test --race
 find . -path './.go' -prune -o -type f -name '*.go' -exec gofmt -s -l {} +
 ./run.ysh lint
 ./run.ysh vuln
-(cd internal/gui/frontend && npm test)
 sh scripts/tests/test-runner.sh
 sh scripts/tests/test-unit-runner.sh
 sh scripts/tests/test-build-runner.sh
 sh scripts/tests/test-dev-runner.sh
 ```
 
-All three executables, `build/occlient`, `build/occlientd`, and
-`build/occlient-gui`, should exist. The formatting check should print no files.
+All three executables should exist in both `build/` and `build/dev/`. The
+formatting check should print no files.
 The vulnerability check resolves `govulncheck@latest` and may require network
 access. From a fresh shell outside Guix, run the separate Guix integration
 fixture with `sh scripts/tests/test-shell-runner.sh`.
@@ -41,7 +41,7 @@ has labeled server and protocol fields. If the daemon is unavailable, confirm
 that it reports `Unable to verify` and an `Unknown` state rather than
 `disconnected`; do not stop an existing daemon merely to perform this check.
 Close the window. To check the
-development workflow, run `./run.ysh dev`, change frontend and Go source as
+development workflow, run `./run.ysh watch-gui`, change frontend and Go source as
 appropriate in a disposable checkout, observe reload and rebuild, and stop it
 with Ctrl+C.
 
@@ -166,6 +166,11 @@ process identity if the PID has been reused. Inspect
   build, CLI help/version checks, frontend tests, and formatting check passed.
   The built GUI opened a window under Xvfb; this smoke check did not inspect
   its rendered controls or state.
-- The updated hosted CI workflow has not yet been verified. No privileged
-  service installation, GUI/CLI shared lifecycle with a real daemon, real VPN,
-  authentication, routes, or DNS were verified for Phase 5.
+- Hosted CI passed for commit `9882d80`. Subsequent local workflow changes
+  passed both build variants, the combined Go race and frontend tests, and
+  runner fixtures. Both GUI build variants opened windows under Xvfb;
+  `watch-gui` opened a native window and connected to Vite. These smoke
+  checks did not verify rendered controls or reloads.
+  Hosted CI has not yet run for those subsequent changes.
+- No privileged service installation, GUI/CLI shared lifecycle with a real
+  daemon, real VPN, authentication, routes, or DNS were verified for Phase 5.

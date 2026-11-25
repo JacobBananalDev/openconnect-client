@@ -21,7 +21,7 @@ cleanup() {
 		wait "$child_pid" 2>/dev/null || true
 	fi
 	rm -f -- "$fixture/run.ysh" "$fixture/scripts/dev.sh" "$fixture/scripts/build.sh" \
-		"$fixture/scripts/wails-dev.yml" "$fixture/scripts/lib/gui-env.sh" "$fixture/scripts/lib/taskfile.ysh" \
+		"$fixture/scripts/wails-dev.yml" "$fixture/scripts/lib/gui-env.sh" "$fixture/scripts/lib/taskfile.ysh" "$fixture/scripts/lib/wails.sh" \
 		"$fixture/build/tools/wails3" "$fixture/build/occlient" "$tools/go" "$tools/npm" "$tools/pkg-config" \
 		"$temp_dir/wails3" "$temp_dir/log" "$temp_dir/stdout" "$temp_dir/stderr" \
 		"$temp_dir/ready" "$temp_dir/signal" "$temp_dir/release" "$temp_dir/locale-link" \
@@ -29,6 +29,7 @@ cleanup() {
 	if [ -d "$fixture/build/.dev-lock" ]; then rmdir "$fixture/build/.dev-lock"; fi
 	if [ -d "$fixture/build/.build-lock" ]; then rmdir "$fixture/build/.build-lock"; fi
 	if [ -d "$fixture/.go" ]; then rmdir "$fixture/.go"; fi
+	if [ -d "$fixture/build/watch" ]; then rmdir "$fixture/build/watch"; fi
 	rmdir -- "$fixture/build/tools" "$fixture/build/dev" "$fixture/build" "$fixture/scripts/lib" "$fixture/scripts" \
 		"$fixture/internal/gui/frontend" "$fixture/internal/gui" "$fixture/internal" "$fixture" \
 		"$tools" "$temp_dir/minimal" "$temp_dir/locale-dir" "$temp_dir"
@@ -40,6 +41,7 @@ mkdir -p "$fixture/scripts/lib" "$fixture/internal/gui/frontend" "$fixture/build
 cp -- "$repo_root/run.ysh" "$fixture/run.ysh"
 cp -- "$repo_root/scripts/dev.sh" "$repo_root/scripts/build.sh" "$repo_root/scripts/wails-dev.yml" "$fixture/scripts/"
 cp -- "$repo_root/scripts/lib/gui-env.sh" "$repo_root/scripts/lib/taskfile.ysh" "$fixture/scripts/lib/"
+cp -- "$repo_root/scripts/lib/wails.sh" "$fixture/scripts/lib/"
 ln -s "$temp_dir/locale-dir" "$temp_dir/locale-link"
 
 cat > "$tools/go" <<'EOF'
@@ -84,6 +86,10 @@ if [ "$1" = version ]; then
 	exit
 fi
 printf 'wails %s\n' "$*" >> "$TEST_LOG"
+if [ "$1" = generate ]; then
+	[ "${TEST_FAILURE:-}" != bindings ]
+	exit
+fi
 printf 'locale %s\n' "${GUIX_LOCPATH-unset}" >> "$TEST_LOG"
 if [ "${TEST_FAILURE:-}" = watcher ]; then exit 37; fi
 if [ "${TEST_WAIT:-0}" = 1 ]; then
@@ -106,9 +112,10 @@ assert_unlocked() {
 	[ ! -e build/.build-lock ] && [ ! -e build/.dev-lock ]
 }
 
-GUIX_LOCPATH="$temp_dir/locale-link" ./run.ysh dev > "$temp_dir/stdout" 2> "$temp_dir/stderr"
+GUIX_LOCPATH="$temp_dir/locale-link" ./run.ysh watch-gui > "$temp_dir/stdout" 2> "$temp_dir/stderr"
 grep -q 'go install github.com/wailsapp/wails/v3/cmd/wails3@v0.0.2' "$TEST_LOG"
 grep -q 'npm ci in ' "$TEST_LOG"
+grep -q 'wails generate bindings -ts -i -d internal/gui/frontend/bindings ./cmd/occlient-gui' "$TEST_LOG"
 grep -q 'wails dev -config scripts/wails-dev.yml -port 9245' "$TEST_LOG"
 grep -q "locale $temp_dir/locale-dir" "$TEST_LOG"
 assert_unlocked
@@ -128,7 +135,7 @@ chmod +x build/tools/wails3
 grep -q 'go install github.com/wailsapp/wails/v3/cmd/wails3@v0.0.2' "$TEST_LOG"
 assert_unlocked
 
-for failure in go-list npm pkg-config watcher; do
+for failure in go-list npm pkg-config bindings watcher; do
 	if TEST_FAILURE=$failure ./run.ysh dev > "$temp_dir/stdout" 2> "$temp_dir/stderr"; then
 		echo "development failure was ignored: $failure" >&2
 		exit 1

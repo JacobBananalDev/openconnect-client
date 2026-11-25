@@ -15,7 +15,7 @@ dev_mode:
       - "*.go"
     git_ignore: true
   executes:
-    - cmd: go build -o build/dev/occlient-gui ./cmd/occlient-gui
+    - cmd: go build -o build/watch/occlient-gui ./cmd/occlient-gui
       type: blocking
     - cmd: npm --prefix internal/gui/frontend run dev
       type: background
@@ -23,6 +23,6 @@ dev_mode:
       readiness:
         tcp: "127.0.0.1:9245"
         timeout: "60s"
-    - cmd: ./build/dev/occlient-gui
+    - cmd: ./build/watch/occlient-gui
       type: primary
       exit_policy: shutdown

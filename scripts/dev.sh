@@ -85,32 +85,10 @@ export LD_LIBRARY_PATH="$libgcc_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 unset GOROOT
 export CC=gcc CXX=g++ CGO_CFLAGS= CGO_CPPFLAGS= CGO_CXXFLAGS= CGO_LDFLAGS= CGO_ENABLED=1 GOTOOLCHAIN=auto
-version=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)
-if [ -z "$version" ]; then
-	echo 'Error: unable to determine the Wails module version from go.mod.' >&2
-	exit 1
-fi
-mkdir -p build/tools build/dev
-if [ -x build/tools/wails3 ]; then
-	if ! installed_version=$(./build/tools/wails3 version 2>&1); then
-		echo "Error: could not determine the project-local Wails CLI version: $installed_version" >&2
-		exit 1
-	fi
-else
-	installed_version=
-fi
-if [ "$installed_version" != "$version" ]; then
-	echo "Installing project-local Wails CLI $version..."
-	GOBIN="$PWD/build/tools" go install "github.com/wailsapp/wails/v3/cmd/wails3@$version"
-	if ! installed_version=$(./build/tools/wails3 version 2>&1); then
-		echo "Error: could not determine the installed Wails CLI version: $installed_version" >&2
-		exit 1
-	fi
-	if [ "$installed_version" != "$version" ]; then
-		echo 'Error: the installed Wails CLI does not match go.mod.' >&2
-		exit 1
-	fi
-fi
+. scripts/lib/wails.sh
+ensure_wails
+generate_bindings
+mkdir -p build/watch
 
 (
 	cd internal/gui/frontend

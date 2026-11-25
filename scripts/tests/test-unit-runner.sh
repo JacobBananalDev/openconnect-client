@@ -6,10 +6,12 @@ repo_root=$(pwd)
 temp_dir=$(mktemp -d)
 fixture="$temp_dir/project"
 cleanup() {
-	rm -f -- "$temp_dir/go" "$temp_dir/args" "$temp_dir/expected" "$temp_dir/output" \
+	rm -f -- "$temp_dir/go" "$temp_dir/npm" "$temp_dir/npm-log" "$temp_dir/args" "$temp_dir/expected" "$temp_dir/output" \
 		"$fixture/run.ysh" "$fixture/scripts/lib/taskfile.ysh" "$fixture/main.go" \
 		"$fixture/dir with spaces/other.go" "$fixture/.go/invalid.go" "$fixture/invalid.go"
 	if [ -d "$fixture/.go" ]; then rmdir "$fixture/.go"; fi
+	if [ -d "$fixture/internal/gui/frontend/node_modules" ]; then rmdir "$fixture/internal/gui/frontend/node_modules"; fi
+	if [ -d "$fixture/internal/gui/frontend" ]; then rmdir "$fixture/internal/gui/frontend" "$fixture/internal/gui" "$fixture/internal"; fi
 	if [ -d "$fixture/dir with spaces" ]; then rmdir "$fixture/dir with spaces"; fi
 	if [ -d "$fixture/scripts/lib" ]; then rmdir "$fixture/scripts/lib"; fi
 	if [ -d "$fixture/scripts" ]; then rmdir "$fixture/scripts"; fi
@@ -25,21 +27,60 @@ printf '%s\n' "$@" > "$TEST_GO_ARGS"
 exit "${TEST_GO_STATUS:-0}"
 EOF
 chmod +x "$temp_dir/go"
+cat > "$temp_dir/npm" <<'EOF'
+#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$TEST_NPM_LOG"
+if [ "$*" = '--prefix internal/gui/frontend ci' ]; then
+	[ "${TEST_NPM_CI_FAILURE:-0}" != 1 ] || exit 43
+	mkdir -p internal/gui/frontend/node_modules
+fi
+exit "${TEST_NPM_STATUS:-0}"
+EOF
+chmod +x "$temp_dir/npm"
 export PATH="$temp_dir:$PATH"
 export TEST_GO_ARGS="$temp_dir/args"
+export TEST_NPM_LOG="$temp_dir/npm-log"
 export OPENCONNECT_CLIENT_ENV=1
+mkdir -p "$fixture/scripts/lib" "$fixture/internal/gui/frontend"
+cp "$repo_root/run.ysh" "$fixture/run.ysh"
+cp "$repo_root/scripts/lib/taskfile.ysh" "$fixture/scripts/lib/taskfile.ysh"
+cd "$fixture"
 
 ./run.ysh unit test
 printf '%s\n' test -v -cover ./... > "$temp_dir/expected"
 diff -u "$temp_dir/expected" "$TEST_GO_ARGS"
+printf '%s\n' '--prefix internal/gui/frontend ci' '--prefix internal/gui/frontend test' > "$temp_dir/expected"
+diff -u "$temp_dir/expected" "$TEST_NPM_LOG"
 
+: > "$TEST_NPM_LOG"
 ./run.ysh unit-test --race --count 3 -- ./internal/vpn -run 'Test name'
 printf '%s\n' test -v -cover -race -count=3 ./internal/vpn -run 'Test name' > "$temp_dir/expected"
 diff -u "$temp_dir/expected" "$TEST_GO_ARGS"
+[ ! -s "$TEST_NPM_LOG" ]
 
 ./run.ysh unit test -r -c 2
 printf '%s\n' test -v -cover -race -count=2 ./... > "$temp_dir/expected"
 diff -u "$temp_dir/expected" "$TEST_GO_ARGS"
+printf '%s\n' '--prefix internal/gui/frontend test' > "$temp_dir/expected"
+diff -u "$temp_dir/expected" "$TEST_NPM_LOG"
+
+if TEST_NPM_STATUS=41 ./run.ysh unit-test > "$temp_dir/output" 2>&1; then
+	echo 'failed frontend test returned success' >&2
+	exit 1
+else
+	test "$?" -eq 41
+fi
+rmdir internal/gui/frontend/node_modules
+: > "$TEST_NPM_LOG"
+if TEST_NPM_CI_FAILURE=1 ./run.ysh unit-test > "$temp_dir/output" 2>&1; then
+	echo 'failed frontend dependency setup returned success' >&2
+	exit 1
+else
+	test "$?" -eq 43
+fi
+printf '%s\n' '--prefix internal/gui/frontend ci' > "$temp_dir/expected"
+diff -u "$temp_dir/expected" "$TEST_NPM_LOG"
 
 ./run.ysh tidy
 printf '%s\n' mod tidy > "$temp_dir/expected"
@@ -97,9 +138,7 @@ fi
 test ! -e "$TEST_GO_ARGS"
 grep -q 'project environment is not active' "$temp_dir/output"
 
-mkdir -p "$fixture/scripts/lib" "$fixture/.go" "$fixture/dir with spaces"
-cp "$repo_root/run.ysh" "$fixture/run.ysh"
-cp "$repo_root/scripts/lib/taskfile.ysh" "$fixture/scripts/lib/taskfile.ysh"
+mkdir -p "$fixture/.go" "$fixture/dir with spaces"
 printf 'package main\nfunc main(){println("hello")}\n' > "$fixture/main.go"
 printf 'package main\nfunc other(){println("hello")}\n' > "$fixture/dir with spaces/other.go"
 printf 'invalid go source\n' > "$fixture/.go/invalid.go"

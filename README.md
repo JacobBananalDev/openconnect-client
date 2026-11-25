@@ -18,18 +18,48 @@ service—built around a reproducible, project-local developer workflow.
 
 ## Architecture
 
-```text
-Desktop GUI ──┐
-              ├── Shared IPC client ── Unix socket ── Daemon ── VPN engine ── OpenConnect
-CLI ──────────┘
- │
- └── Foreground mode ─────────────────────────────── VPN engine ── OpenConnect
+```mermaid
+flowchart LR
+    subgraph user["User session"]
+        ui["React desktop UI"] --> wails["Wails service"]
+        wails --> guiIPC["IPC client"]
+        cli["CLI"] -- background --> cliIPC["IPC client"]
+        cli -- foreground --> foregroundEngine["VPN engine"]
+        foregroundEngine --> foregroundOC["OpenConnect"]
+    end
+
+    guiIPC --> socket["Restricted Unix socket"]
+    cliIPC --> socket
+
+    subgraph daemon["Privileged daemon"]
+        server["IPC server"] --> auth["Peer authorization"]
+        auth --> service["Daemon service"]
+        service -- connect --> policy["Administrator policy"]
+        policy -- approved --> daemonEngine["VPN engine"]
+        service -- "status / disconnect" --> daemonEngine
+        daemonEngine --> daemonOC["OpenConnect"]
+    end
+
+    socket --> server
+    systemd["systemd"] -. "optional supervision" .-> service
+
+    classDef uiStyle fill:#dbeafe,stroke:#2563eb,color:#172554
+    classDef transport fill:#e0e7ff,stroke:#4f46e5,color:#1e1b4b
+    classDef security fill:#fef3c7,stroke:#d97706,color:#451a03
+    classDef engine fill:#d1fae5,stroke:#059669,color:#022c22
+    classDef process fill:#f3e8ff,stroke:#9333ea,color:#3b0764
+    class ui,wails,cli uiStyle
+    class guiIPC,cliIPC,socket,server transport
+    class auth,policy security
+    class service,foregroundEngine,daemonEngine engine
+    class foregroundOC,daemonOC,systemd process
 ```
 
 The GUI and background CLI send requests to the daemon; they do not run the
 privileged VPN process themselves. The daemon authorizes peers and applies an
 administrator-managed connection policy. The foreground CLI runs independently
-as the invoking user. Service installation is manual.
+as the invoking user. Both paths use the same engine implementation in separate
+processes. Service installation is manual.
 
 ## Quick start
 
@@ -46,9 +76,9 @@ cd openconnect-client
 Inside the project shell:
 
 ```bash
-./run.ysh build          # Build CLI, daemon, and desktop GUI
+./run.ysh build-prod     # Build CLI, daemon, and desktop GUI
 ./run.ysh run            # Launch the GUI as an unprivileged user
-./run.ysh unit test      # Run Go tests
+./run.ysh unit-test      # Run Go and frontend tests
 ./run.ysh penv code .    # Open an editor in the project environment
 ```
 
@@ -71,11 +101,13 @@ The runner prepares Go on startup; explicit help commands do not.
 ### 🟢 Build
 
 ```bash
-./run.ysh build
+./run.ysh build-prod
+./run.ysh build-dev
 ```
 
-The build installs lockfile-pinned frontend dependencies locally using
-Guix-provided npm and produces:
+Both builds install lockfile-pinned frontend dependencies locally using
+Guix-provided npm and produce all three binaries. `build-prod` writes to
+`build/`; `build-dev` writes to `build/dev/`:
 
 ```text
 build/occlient       CLI
@@ -83,11 +115,16 @@ build/occlientd      daemon
 build/occlient-gui   desktop GUI
 ```
 
+`build-prod` uses a production-tagged GUI; it does not package or install
+the application. `build-dev` generates Wails bindings and builds a development
+GUI that can honor `FRONTEND_DEVSERVER_URL`. Both embed built frontend assets;
+only `watch-gui` provides reloads.
+
 Rebuild after source changes or branch switches. Once the environment check
-passes and the build lock is acquired, a build removes the previous binaries;
-after a failure, build again before running. Binaries may be stale if the
-environment check or lock acquisition fails. Build and development sessions
-cannot run concurrently. Remove a stale empty `build/.build-lock` or
+passes and the build lock is acquired, a build removes the previous binaries
+for that variant; after a failure, build it again before running. Binaries may
+be stale if the environment check or lock acquisition fails. Build and watch
+sessions cannot run concurrently. Remove a stale empty `build/.build-lock` or
 `build/.dev-lock` only after confirming the corresponding session is not running.
 
 Go builds clear inherited `GOROOT` and CGO flags and use the project environment's
@@ -96,7 +133,8 @@ GCC/G++ and the toolchain selected by `go.mod`.
 ### 🔵 Run
 
 ```bash
-./run.ysh run                             # Desktop GUI
+./run.ysh run                             # Production-build desktop GUI
+./run.ysh run-dev                         # Development-build desktop GUI
 ./run.ysh run --gui                       # Explicit GUI
 ./run.ysh run -c --server vpn.example.com # Foreground CLI connection
 ./run.ysh run -c --server vpn.example.com --background
@@ -104,10 +142,11 @@ GCC/G++ and the toolchain selected by `go.mod`.
 ./run.ysh run -d                          # Daemon disconnect
 ./run.ysh run --daemon                    # Start daemon directly; no setup or elevation
 ./run.ysh run --version                   # CLI version
-./run.ysh run --help                      # Selectors and help
+./run.ysh run --help                      # Selectors and help for both variants
 ```
 
-Build first: `run` does not build, install services, or elevate privileges.
+Build the chosen variant first: neither run task builds, installs services, or
+elevates privileges. `run-dev` accepts the same selectors as `run`.
 Choose one operation as the first argument. An optional `--` immediately after
 the selector ends wrapper parsing and is removed; use a second `--` to forward
 one to the target. Other arguments are forwarded unchanged. Existing CLI
@@ -121,27 +160,26 @@ required identity, trusted paths, socket directory, or policy; see the
 ### 🟣 Develop
 
 ```bash
-./run.ysh dev
+./run.ysh watch-gui
 ```
 
 Run as an unprivileged user with a graphical display. This uses a project-local
-Wails CLI and locked frontend dependencies, starts Vite on `127.0.0.1:9245`,
-hot reloads frontend edits, and rebuilds/restarts the GUI for Go changes. Stop
-with Ctrl+C. When bound Go methods change, regenerate TypeScript bindings using
-the project-local Wails CLI:
-
-```bash
-./build/tools/wails3 generate bindings -ts -i -d internal/gui/frontend/bindings ./cmd/occlient-gui
-```
+Wails CLI, generates bindings, installs locked frontend dependencies, starts
+Vite on `127.0.0.1:9245`, hot reloads frontend edits, and rebuilds/restarts the
+GUI for Go changes. Stop
+with Ctrl+C. Binding generation may update tracked frontend files. If bound Go
+methods change while watching, restart `watch-gui` to regenerate the bindings.
+The existing `build` and `dev` tasks remain aliases for `build-prod` and
+`watch-gui`.
 
 ## Connections and security
 
 ### Foreground CLI
 
 ```bash
-./build/occlient connect --server vpn.example.com
-./build/occlient connect --server vpn.example.com:8443 --protocol pulse --ca-cert /path/to/ca-bundle.crt
-./build/occlient connect --server vpn.example.com --script /path/to/vpnc-script
+./run.ysh run connect --server vpn.example.com
+./run.ysh run connect --server vpn.example.com:8443 --protocol pulse --ca-cert /path/to/ca-bundle.crt
+./run.ysh run connect --server vpn.example.com --script /path/to/vpnc-script
 ```
 
 The foreground connection ends with Ctrl+C. The CLI supports `anyconnect`,
@@ -167,17 +205,19 @@ policy requirements, and limitations, see the [systemd guide](docs/systemd.md),
 ## Quality checks
 
 ```bash
-./run.ysh unit test                 # Go tests
-./run.ysh unit test --race          # Race detector
-./run.ysh unit test --count 5       # Repeat tests
-./run.ysh unit test -- ./internal/vpn -run TestName
+./run.ysh unit-test                 # Go and frontend tests
+./run.ysh unit-test --race          # Race detector for Go tests
+./run.ysh unit-test --count 5       # Repeat Go tests
+./run.ysh unit-test -- ./internal/vpn -run TestName  # Go selection only
 ./run.ysh fmt                       # Format project Go files
 ./run.ysh lint                      # Go vet
 ./run.ysh vuln                      # Go vulnerability scan
 ./run.ysh tidy                      # Update go.mod and go.sum
 ```
 
-Frontend tests: `cd internal/gui/frontend && npm test`. For grouped tasks and
+The frontend suite runs once unless Go tests are explicitly selected after
+`--`. If frontend dependencies are missing, the test task installs them
+locally using the lockfile. `unit test` remains an alias. For grouped tasks and
 examples, run `./run.ysh list-tasks` or `./run.ysh TASK -h` / `--help`.
 Explicit help works outside the project shell when YSH is available. Set
 `NO_COLOR=1` to disable terminal colors; redirected output is plain.
@@ -190,7 +230,7 @@ Explicit help works outside the project shell when YSH is available. Set
 | OpenConnect not found | Install it on the host using your distribution's instructions, or set `OPENCONNECT_PATH` to its executable before entering the project shell. |
 | Daemon unavailable or request denied | Check the [service setup and policy](docs/systemd.md); the GUI does not start or configure the daemon. |
 | Git hooks not running | Run `git config core.hooksPath .githooks` once per clone. |
-| Tests fail locally | Repeat with `./run.ysh unit test --count 10` or use `--race`; inspect the reported failure. |
+| Tests fail locally | Repeat Go tests with `./run.ysh unit-test --count 10` or use `--race`; inspect the reported failure. |
 
 ## Documentation
 

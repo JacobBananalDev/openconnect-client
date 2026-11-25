@@ -327,7 +327,7 @@ conventions. Reuse the root Go module and avoid duplicated IPC clients.
 | 5.5 (complete) | Unified build for all three binaries | Clean project-local build; clear failure behavior |
 | 5.6 (complete) | Unified run command and help | Dispatch, argument forwarding, missing binary and signal tests |
 | 5.7 (complete) | Development mode and environment integration | Hot reload works without global tool installs |
-| 5.8 | Testing, CI and security regression coverage | Existing tests preserved; new tests and builds pass |
+| 5.8 (complete) | Testing, CI and security regression coverage | Existing tests preserved; new tests and builds pass |
 | 5.9 (complete) | Documentation and manual verification | Contributor workflow documented and reviewed |
 
 Work on exactly one task at a time. Propose affected files, implementation and tests, then wait for approval. After implementation, report actual commands, results and limitations and wait again.

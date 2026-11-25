@@ -7,13 +7,15 @@ fixture=$temp_dir/project
 tools=$temp_dir/tools
 real_mv=$(command -v mv)
 cleanup() {
-	rm -f -- "$fixture/run.ysh" "$fixture/scripts/build.sh" "$fixture/scripts/lib/taskfile.ysh" \
+	rm -f -- "$fixture/run.ysh" "$fixture/scripts/build.sh" "$fixture/scripts/lib/taskfile.ysh" "$fixture/scripts/lib/wails.sh" \
 		"$fixture/internal/gui/web/dist/index.html" "$fixture/build/occlient" \
 		"$fixture/build/occlientd" "$fixture/build/occlient-gui" "$fixture/build/tools/wails3" \
+		"$fixture/build/dev/occlient" "$fixture/build/dev/occlientd" "$fixture/build/dev/occlient-gui" \
 		"$tools/go" "$tools/npm" "$tools/pkg-config" "$tools/mv" "$temp_dir/log" "$temp_dir/output" \
 		"$temp_dir/minimal/dirname" "$temp_dir/minimal/mkdir" "$temp_dir/minimal/rm" \
 		"$temp_dir/minimal/rmdir" "$temp_dir/minimal/mktemp" "$temp_dir/minimal/go"
 	if [ -d "$fixture/.go" ]; then rmdir "$fixture/.go"; fi
+	if [ -d "$fixture/build/dev" ]; then rmdir "$fixture/build/dev"; fi
 	rmdir -- "$fixture/scripts/lib" "$fixture/scripts" "$fixture/internal/gui/frontend" \
 		"$fixture/internal/gui/web/dist" "$fixture/internal/gui/web" "$fixture/internal/gui" \
 		"$fixture/internal" "$fixture/build/tools" "$fixture/build" "$fixture" "$tools" "$temp_dir/minimal" "$temp_dir"
@@ -25,7 +27,15 @@ mkdir -p "$fixture/scripts/lib" "$fixture/internal/gui/frontend" "$fixture/inter
 cp -- "$repo_root/run.ysh" "$fixture/run.ysh"
 cp -- "$repo_root/scripts/build.sh" "$fixture/scripts/build.sh"
 cp -- "$repo_root/scripts/lib/taskfile.ysh" "$fixture/scripts/lib/taskfile.ysh"
-touch "$fixture/build/tools/wails3"
+cp -- "$repo_root/scripts/lib/wails.sh" "$fixture/scripts/lib/wails.sh"
+cat > "$fixture/build/tools/wails3" <<'EOF'
+#!/bin/sh
+set -eu
+if [ "$1" = version ]; then echo v0.0.2 >&2; exit 0; fi
+printf 'wails %s\n' "$*" >> "$TEST_LOG"
+[ "${TEST_FAILURE:-}" != bindings ]
+EOF
+chmod +x "$fixture/build/tools/wails3"
 
 cat > "$tools/npm" <<'EOF'
 #!/bin/sh
@@ -47,6 +57,7 @@ printf 'go %s\n' "$*" >> "$TEST_LOG"
 	[ "$CGO_CFLAGS" = '' ] && [ "$CGO_CPPFLAGS" = '' ] &&
 	[ "$CGO_CXXFLAGS" = '' ] && [ "$CGO_LDFLAGS" = '' ] &&
 	[ "$CGO_ENABLED" = 1 ] && [ "$GOTOOLCHAIN" = auto ]
+if [ "$1" = list ]; then echo v0.0.2; exit 0; fi
 if [ "$2" = -tags ]; then
 	[ "$3" = production ]
 	shift 2
@@ -113,6 +124,28 @@ grep -q 'npm run build' "$TEST_LOG"
 grep -q 'go build -tags production -o .* ./cmd/occlient-gui' "$TEST_LOG"
 grep -q 'Built: build/occlient, build/occlientd and build/occlient-gui' "$temp_dir/output"
 
+: > "$TEST_LOG"
+./run.ysh build-dev > "$temp_dir/output" 2>&1
+for name in occlient occlientd occlient-gui; do
+	[ -x "build/dev/$name" ] && [ -x "build/$name" ]
+done
+grep -q 'wails generate bindings -ts -i -d internal/gui/frontend/bindings ./cmd/occlient-gui' "$TEST_LOG"
+grep -q 'go build -o .* ./cmd/occlient-gui' "$TEST_LOG"
+if grep -q 'go build -tags production .* ./cmd/occlient-gui' "$TEST_LOG"; then
+	echo 'development GUI unexpectedly used the production tag' >&2
+	exit 1
+fi
+
+if TEST_FAILURE=bindings ./run.ysh build-dev > "$temp_dir/output" 2>&1; then
+	echo 'development build accepted failed binding generation' >&2
+	exit 1
+fi
+for name in occlient occlientd occlient-gui; do
+	[ ! -e "build/dev/$name" ] && [ -x "build/$name" ]
+done
+[ ! -e build/.build-lock ]
+
+./run.ysh build-dev > "$temp_dir/output" 2>&1
 for failure in pkg-config npm-ci npm-build go-occlientd missing-occlient-gui nonexec-occlient publish interrupt-occlientd; do
 	for name in occlient occlientd occlient-gui; do
 		printf 'old binary\n' > "build/$name"
@@ -133,6 +166,9 @@ for failure in pkg-config npm-ci npm-build go-occlientd missing-occlient-gui non
 		exit 1
 	fi
 	assert_no_binaries
+	for name in occlient occlientd occlient-gui; do
+		[ -x "build/dev/$name" ]
+	done
 done
 
 for tool in dirname mkdir rm rmdir mktemp; do

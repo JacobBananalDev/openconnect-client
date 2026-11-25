@@ -59,7 +59,8 @@ them when the project environment is missing.
 
 ```bash
 # Build the CLI, daemon and desktop GUI
-./run.ysh build
+./run.ysh build-prod
+./run.ysh build-dev
 
 # Run the binary
 ./build/occlient --help
@@ -68,10 +69,10 @@ them when the project environment is missing.
 ./run.ysh run
 
 # Run the GUI with development reloads
-./run.ysh dev
+./run.ysh watch-gui
 
 # Run all tests
-./run.ysh unit test
+./run.ysh unit-test
 
 # Format code
 ./run.ysh fmt
@@ -83,10 +84,12 @@ them when the project environment is missing.
 ./run.ysh vuln
 ```
 
-The build uses Guix-provided npm to install locked dependencies locally and
-replaces all three binaries. Rebuild after source changes or branch switches;
-after any failed build, run it again before using the binaries. See the
-[build notes](README.md#quick-start) for compiler settings and lock cleanup.
+Both builds use Guix-provided npm to install locked dependencies locally and
+replace all three binaries for their selected variant. Development binaries
+are separate from production-tagged binaries. Rebuild after source changes or
+branch switches; after a failed build, run it again before using that variant.
+See the
+[build notes](README.md#build-run-and-develop) for compiler settings and lock cleanup.
 See the [run commands](README.md#available-commands) for CLI and daemon
 selectors and their privilege requirements.
 Development mode uses local Wails/Vite tools and cannot run concurrently with a
@@ -114,7 +117,7 @@ Runs **before each commit**. Checks:
 
 - ✅ Code formatting (`gofmt`)
 - ✅ Linting (`go vet`)
-- ✅ Go unit tests and vulnerability scan
+- ✅ Go and frontend unit tests and vulnerability scan
 - ✅ Staged filename and whitespace checks
 
 The formatting task writes project Go files, including unstaged files; review
@@ -251,27 +254,28 @@ exec.Command("bash", "-c", fmt.Sprintf("openconnect %s", serverURL))
 
 ```bash
 # All tests with output
-./run.ysh unit test
+./run.ysh unit-test
 
 # Specific package
-./run.ysh unit test -- ./internal/vpn
+./run.ysh unit-test -- ./internal/vpn
 
 # Specific test
-./run.ysh unit test -- ./internal/vpn -run TestGoroutineCleanup
+./run.ysh unit-test -- ./internal/vpn -run TestGoroutineCleanup
 
 # With race detection
-./run.ysh unit test --race
+./run.ysh unit-test --race
 
 # Multiple runs (detect flakiness)
-./run.ysh unit test --count 5
+./run.ysh unit-test --count 5
 
 # Coverage report
-./run.ysh unit test -- ./... -coverprofile=coverage.out
+./run.ysh unit-test -- ./... -coverprofile=coverage.out
 go tool cover -html=coverage.out
 ```
 
-For frontend tests, run `npm test` in `internal/gui/frontend` after the build
-has installed the locked dependencies. See the [manual verification guide](docs/manual-verification.md)
+The frontend suite runs once unless Go tests are selected after `--`. Race and
+count options apply only to Go. The task installs locked frontend dependencies
+locally if absent. See the [manual verification guide](docs/manual-verification.md)
 for task-runner fixtures and checks that require an authorized test host.
 
 ### Writing Tests
@@ -328,7 +332,7 @@ for task-runner fixtures and checks that require an authorized test host.
 Before submitting a PR, ensure:
 
 - [ ] Code formatted: `./run.ysh fmt`
-- [ ] Tests pass: `./run.ysh unit test`
+- [ ] Tests pass: `./run.ysh unit-test`
 - [ ] Linting passes: `./run.ysh lint`
 - [ ] Security scan passes: `./run.ysh vuln`
 - [ ] No hardcoded secrets or credentials
@@ -389,7 +393,7 @@ go.sum               # Go dependency hashes
 1. Create directory under `internal/` with public types
 2. Create `*_test.go` file with comprehensive tests
 3. Update documentation if public API
-4. Ensure tests pass: `./run.ysh unit test`
+4. Ensure tests pass: `./run.ysh unit-test`
 
 ### Add a New CLI Flag
 
@@ -403,12 +407,12 @@ go.sum               # Go dependency hashes
 
 1. Write a **failing test** that reproduces the bug
 2. Fix the code to make the test pass
-3. Ensure no other tests break: `./run.ysh unit test`
+3. Ensure no other tests break: `./run.ysh unit-test`
 4. Document the fix in commit message
 
 ### Improve Performance
 
-1. Add benchmarks: `./run.ysh unit test -- ./package -bench=.`
+1. Add benchmarks: `./run.ysh unit-test -- ./package -bench=.`
 2. Profile with pprof if needed
 3. Measure improvement before/after
 4. Keep tests deterministic (no timing-based assertions)

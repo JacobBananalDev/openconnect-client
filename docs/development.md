@@ -21,9 +21,10 @@ Optionally enable the project's pre-commit hook once per clone:
 git config core.hooksPath .githooks
 ```
 
-The hook requires the project environment and runs formatting, lint, Go unit
-tests, vulnerability scanning, and staged filename and whitespace checks. It
-can modify unstaged Go files; review changes before committing. It does not
+The hook requires the project environment and runs formatting, lint, Go and
+frontend unit tests, vulnerability scanning, and staged filename and
+whitespace checks. It can modify unstaged Go files; review changes before
+committing. It does not
 perform secret detection. There is no pre-push hook.
 
 ## Project layout
@@ -44,8 +45,10 @@ perform secret detection. There is no pre-push hook.
 ## Build and run
 
 ```bash
-./run.ysh build          # CLI, daemon, and desktop GUI in build/
-./run.ysh run            # GUI
+./run.ysh build-prod     # Production-tagged binaries in build/
+./run.ysh build-dev      # Development binaries in build/dev/
+./run.ysh run            # Production-build GUI
+./run.ysh run-dev        # Development-build GUI
 ./run.ysh run --version  # CLI version
 ./run.ysh run --help     # All run selectors
 ./run.ysh run -c --server vpn.example.com --background
@@ -53,39 +56,43 @@ perform secret detection. There is no pre-push hook.
 ./run.ysh run -d         # Daemon disconnect
 ```
 
-The build installs locked frontend dependencies locally and replaces all three
-binaries. Rebuild after source changes or branch switches; after a failed
-build, build again before running. The run task never builds, installs a
-service, or elevates privileges. See the [README build and run notes](../README.md#build-run-and-develop)
+Each build installs locked frontend dependencies locally and replaces all three
+binaries for its variant. Rebuild after source changes or branch switches; after
+a failed build, build that variant again before running. Neither run task
+builds, installs a service, or elevates privileges. See the
+[README build and run notes](../README.md#build-run-and-develop)
 for argument forwarding, lock handling, and GUI launch details.
 
 For frontend hot reload and Go rebuilds:
 
 ```bash
-./run.ysh dev
+./run.ysh watch-gui
 ```
 
 The dev task requires a graphical display and an unprivileged user. It uses
 project-local Wails and Vite tools, and cannot run concurrently with a build.
-Stop it with Ctrl+C. Regenerate bindings after changing bound Go methods using
-the command in the [README](../README.md#build-run-and-develop).
+Stop it with Ctrl+C. `build-dev` and `watch-gui` generate tracked bindings
+automatically. Restart the watcher after changing bound Go methods. The GUI
+in `build-dev` can honor `FRONTEND_DEVSERVER_URL`; the production-tagged GUI
+does not.
 
 ## Testing and quality
 
 ```bash
-./run.ysh unit test
-./run.ysh unit test --race
-./run.ysh unit test --count 5
-./run.ysh unit test -- ./internal/vpn -run TestName
+./run.ysh unit-test
+./run.ysh unit-test --race
+./run.ysh unit-test --count 5
+./run.ysh unit-test -- ./internal/vpn -run TestName
 ./run.ysh fmt
 ./run.ysh lint
 ./run.ysh vuln
 ```
 
 `fmt` writes Go files while excluding the project-local `.go/` cache. The
-vulnerability task may need network access. Run frontend tests with `npm test`
-from `internal/gui/frontend` after installing the locked dependencies through
-the build. The [manual verification guide](manual-verification.md) lists
+vulnerability task may need network access. The unit-test task runs frontend
+tests once and installs locked frontend dependencies locally if absent.
+Explicit Go selections after `--` skip frontend tests; `--race` and `--count`
+apply only to Go. The [manual verification guide](manual-verification.md) lists
 runner fixtures and separates unprivileged checks from optional service and
 VPN verification.
 
@@ -118,9 +125,9 @@ Interactive authentication and credential persistence are not implemented.
 Use focused tests and the race detector before expanding the test scope:
 
 ```bash
-./run.ysh unit test --race -- ./internal/daemon
-./run.ysh unit test -- ./internal/vpn -run TestName
-./run.ysh unit test -- ./internal/vpn -cpuprofile=cpu.prof
+./run.ysh unit-test --race -- ./internal/daemon
+./run.ysh unit-test -- ./internal/vpn -run TestName
+./run.ysh unit-test -- ./internal/vpn -cpuprofile=cpu.prof
 go tool pprof cpu.prof
 ```
 

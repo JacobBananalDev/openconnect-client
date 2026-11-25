@@ -9,6 +9,16 @@ if [ "${OPENCONNECT_CLIENT_ENV:-}" != 1 ]; then
 	exit 1
 fi
 
+mode=${1:-prod}
+if [ "$#" -gt 1 ] || { [ "$mode" != prod ] && [ "$mode" != dev ]; }; then
+	echo 'Usage: scripts/build.sh [prod|dev]' >&2
+	exit 2
+fi
+output=build
+if [ "$mode" = dev ]; then
+	output=build/dev
+fi
+
 mkdir -p build
 if ! mkdir build/.build-lock 2>/dev/null; then
 	echo 'Error: another build may be running, or build/.build-lock is stale; existing binaries may be stale.' >&2
@@ -31,12 +41,12 @@ cleanup() {
 	fi
 	rmdir -- build/.build-lock || status=1
 	if [ "$success" -eq 1 ] && [ "$status" -eq 0 ]; then
-		echo 'Built: build/occlient, build/occlientd and build/occlient-gui'
+		echo "Built: $output/occlient, $output/occlientd and $output/occlient-gui"
 	else
-		if ! rm -f -- build/occlient build/occlientd build/occlient-gui; then
+		if ! rm -f -- "$output/occlient" "$output/occlientd" "$output/occlient-gui"; then
 			echo 'Error: could not remove all incomplete project binaries.' >&2
 		fi
-		echo 'Error: build failed; run ./run.ysh build again before using project binaries.' >&2
+		echo "Error: build failed; run ./run.ysh build-$mode again before using $output binaries." >&2
 		if [ "$status" -eq 0 ]; then
 			status=1
 		fi
@@ -47,7 +57,8 @@ trap cleanup 0
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-rm -f -- build/occlient build/occlientd build/occlient-gui
+mkdir -p "$output"
+rm -f -- "$output/occlient" "$output/occlientd" "$output/occlient-gui"
 stage=$(mktemp -d build/.build-stage.XXXXXXXX)
 
 for tool in go npm gcc g++ pkg-config; do
@@ -65,6 +76,14 @@ libgcc_file=$(readlink -f "$(gcc -print-file-name=libgcc_s.so.1)")
 libgcc_dir=$(dirname "$libgcc_file")
 export LD_LIBRARY_PATH="$libgcc_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
+if [ "$mode" = dev ]; then
+	unset GOROOT
+	export CC=gcc CXX=g++ CGO_CFLAGS= CGO_CPPFLAGS= CGO_CXXFLAGS= CGO_LDFLAGS= CGO_ENABLED=1 GOTOOLCHAIN=auto
+	. scripts/lib/wails.sh
+	ensure_wails
+	generate_bindings
+fi
+
 (
 	cd internal/gui/frontend
 	npm ci
@@ -76,7 +95,7 @@ if [ ! -s internal/gui/web/dist/index.html ]; then
 fi
 
 for name in occlient occlientd occlient-gui; do
-	if [ "$name" = occlient-gui ]; then
+	if [ "$name" = occlient-gui ] && [ "$mode" = prod ]; then
 		env -u GOROOT CC=gcc CXX=g++ CGO_CFLAGS= CGO_CPPFLAGS= CGO_CXXFLAGS= CGO_LDFLAGS= CGO_ENABLED=1 GOTOOLCHAIN=auto \
 			go build -tags production -o "$stage/$name" "./cmd/$name"
 	else
@@ -90,11 +109,11 @@ for name in occlient occlientd occlient-gui; do
 done
 
 for name in occlient occlientd occlient-gui; do
-	mv -- "$stage/$name" "build/$name"
+	mv -- "$stage/$name" "$output/$name"
 done
 for name in occlient occlientd occlient-gui; do
-	if [ ! -f "build/$name" ] || [ ! -x "build/$name" ]; then
-		echo "Error: published artifact build/$name is not executable." >&2
+	if [ ! -f "$output/$name" ] || [ ! -x "$output/$name" ]; then
+		echo "Error: published artifact $output/$name is not executable." >&2
 		exit 1
 	fi
 done
