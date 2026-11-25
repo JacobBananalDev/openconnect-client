@@ -19,6 +19,8 @@ build_lock=0
 dev_lock=0
 watcher=
 interrupted=0
+starting_watcher=0
+signal_sent=0
 cleanup() {
 	status=$?
 	set +e
@@ -30,15 +32,23 @@ cleanup() {
 	fi
 	exit "$status"
 }
+signal_watcher() {
+	if [ "$signal_sent" -eq 0 ] && [ -n "$watcher" ]; then
+		signal_sent=1
+		if ! kill -s INT "$watcher" 2>/dev/null && kill -0 "$watcher" 2>/dev/null; then
+			echo 'Error: could not interrupt the development watcher; waiting for it to exit.' >&2
+		fi
+	fi
+}
 forward_signal() {
-	interrupted=$1
-	if [ -z "$watcher" ]; then
-		exit "$interrupted"
+	if [ "$interrupted" -eq 0 ]; then
+		interrupted=$1
+		if [ -z "$watcher" ] && [ "$starting_watcher" -eq 0 ]; then
+			exit "$interrupted"
+		fi
+		echo 'Stopping the development watcher; waiting for it to exit...' >&2
+		signal_watcher
 	fi
-	if kill -0 "$watcher" 2>/dev/null; then
-		kill -s INT "$watcher"
-	fi
-	exit "$interrupted"
 }
 trap cleanup 0
 trap 'forward_signal 130' INT
@@ -107,13 +117,25 @@ fi
 	npm ci
 )
 
-./build/tools/wails3 dev -config scripts/wails-dev.yml -port 9245 &
+starting_watcher=1
+# Background jobs can inherit SIGINT ignored; Guix coreutils resets it for Wails.
+env --default-signal=INT ./build/tools/wails3 dev -config scripts/wails-dev.yml -port 9245 &
 watcher=$!
-if wait "$watcher"; then
-	status=0
-else
-	status=$?
+starting_watcher=0
+if [ "$interrupted" -ne 0 ]; then
+	signal_watcher
 fi
+while :; do
+	if wait "$watcher"; then
+		status=0
+	else
+		status=$?
+	fi
+	# A trapped signal can interrupt wait before the watcher exits.
+	if [ "$interrupted" -eq 0 ] || ! kill -0 "$watcher" 2>/dev/null; then
+		break
+	fi
+done
 watcher=
 if [ "$interrupted" -ne 0 ]; then
 	exit "$interrupted"

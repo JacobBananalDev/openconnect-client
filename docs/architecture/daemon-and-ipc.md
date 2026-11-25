@@ -12,19 +12,24 @@ current implementation status.
 - `occlient` exposes explicit background connect, status, and disconnect
   commands. An experimental systemd unit is supplied but not installed
   automatically.
+- `occlient-gui` uses a Wails service and the shared IPC client for status,
+  connect, and disconnect. It does not own the daemon's VPN engine.
 
 ## Scope
 
 The target architecture is:
 
 ```text
-occlient -> Unix domain socket -> occlientd -> internal/vpn.Engine -> OpenConnect
+occlient (background) --\
+                         -> shared IPC client -> Unix socket -> occlientd -> VPN engine -> OpenConnect
+occlient-gui -----------/
+occlient (foreground) ----------------------------------------> VPN engine -> OpenConnect
 ```
 
 The daemon owns one engine and at most one active VPN connection. The
 existing foreground CLI remains independent. Automatic connection at startup,
-automatic reconnection, credential persistence, GUI, and browser-based SAML or
-MFA flows are not part of this design.
+automatic reconnection, credential persistence, and browser-based SAML or MFA
+flows are not implemented.
 
 The engine reports `connecting` after the OpenConnect process starts. It does
 not yet detect authentication or tunnel readiness, and does not transition to
@@ -81,12 +86,14 @@ daemon does not create the directory; the systemd unit manages it with mode
 Running the service as root is a material trust boundary: authorized clients
 can request VPN operations through a privileged process. The service must
 validate every request and apply administrator-controlled policy. The policy
-allows exact server, protocol, certificate, and script combinations and
-requires an explicit trusted script. Missing policy denies connections; an
-invalid or unsafe policy prevents startup. Privileged file paths are checked
-again before use. The policy and systemd hardening still need verification
-against actual OpenConnect requirements. A separate privileged helper is not
-part of this design.
+allows only administrator-approved server, protocol, certificate, and script
+combinations and requires a trusted script in every policy entry. If a request
+omits the script, the daemon selects it only when the other fields match one
+distinct policy script. Explicit scripts must match exactly. Missing policy
+denies connections; an invalid or unsafe policy prevents startup. Privileged
+file paths are checked again before use. The policy and systemd hardening
+still need verification against actual OpenConnect requirements. A separate
+privileged helper is not part of this design.
 
 The server refuses any pre-existing socket path rather than deleting a
 potentially live or unrelated path. On shutdown it removes the socket only if
@@ -120,7 +127,12 @@ Protocol version 1 request:
 
 Connect accepts only the engine's supported configuration fields. The daemon
 validates inputs independently and applies administrator policy to fields with
-privileged effects, including script paths.
+privileged effects, including script paths. An omitted script is selected from
+policy only for an unambiguous match; omitted certificates must also match.
+The GUI binding exposes server, protocol, and optional CA certificate fields,
+but no script. Its current screen supplies only server and protocol. It uses
+bounded requests and reports daemon unavailability separately from connection
+state. Closing the GUI does not request that the daemon disconnect.
 
 Status and disconnect requests use an empty parameter object:
 

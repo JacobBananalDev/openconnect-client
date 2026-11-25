@@ -18,12 +18,12 @@ type Service struct {
 	mu       sync.Mutex
 	engine   *vpn.Engine
 	server   *ipc.Server
-	policy   func(vpn.ConnectionConfig) bool
+	policy   func(vpn.ConnectionConfig) (vpn.ConnectionConfig, bool)
 	stopping atomic.Bool
 }
 
 // NewService creates a service. A nil policy denies every connect request.
-func NewService(path string, runner vpn.ProcessRunner, authorizer ipc.Authorizer, policy func(vpn.ConnectionConfig) bool) (*Service, error) {
+func NewService(path string, runner vpn.ProcessRunner, authorizer ipc.Authorizer, policy func(vpn.ConnectionConfig) (vpn.ConnectionConfig, bool)) (*Service, error) {
 	if runner == nil {
 		return nil, errors.New("VPN process runner is required")
 	}
@@ -80,7 +80,11 @@ func (s *Service) Handle(ctx context.Context, request ipc.Request, _ ipc.PeerCre
 		if err := config.Validate(); err != nil {
 			return ipc.NewErrorResponse(request.RequestID, "invalid_request", "Invalid connection parameters")
 		}
-		if s.policy == nil || !s.policy(config) {
+		if s.policy == nil {
+			return ipc.NewErrorResponse(request.RequestID, "policy_denied", "Connection is not permitted")
+		}
+		config, allowed := s.policy(config)
+		if !allowed {
 			return ipc.NewErrorResponse(request.RequestID, "policy_denied", "Connection is not permitted")
 		}
 		if err := s.engine.Connect(context.Background(), config); err != nil {

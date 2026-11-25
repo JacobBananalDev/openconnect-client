@@ -111,6 +111,31 @@ jobs:
           npm ci
           npm test
 
+      - name: Build pinned YSH
+        run: |
+          oils_version=0.37.0
+          oils_dir="$RUNNER_TEMP/oils"
+          mkdir -p "$oils_dir"
+          curl -fsSL "https://oils.pub/download/oils-for-unix-${oils_version}.tar.gz" -o "$oils_dir/oils.tar.gz"
+          printf '%s  %s\n' \
+            'f4d41d20a0523dbcfbd4ba231f82edf25b08d4965d65bc71fcb56666d6743000' \
+            "$oils_dir/oils.tar.gz" | sha256sum --check
+          tar -xzf "$oils_dir/oils.tar.gz" -C "$oils_dir"
+          cd "$oils_dir/oils-for-unix-$oils_version"
+          ./configure --prefix="$oils_dir/install"
+          ./_build/oils.sh
+          ./install
+          echo "$oils_dir/install/bin" >> "$GITHUB_PATH"
+
+      - name: Test task runners
+        env:
+          TERM: xterm-256color
+        run: |
+          sh scripts/tests/test-runner.sh
+          sh scripts/tests/test-unit-runner.sh
+          sh scripts/tests/test-build-runner.sh
+          sh scripts/tests/test-dev-runner.sh
+
   lint:
     name: Formatting and static analysis
     runs-on: ubuntu-24.04

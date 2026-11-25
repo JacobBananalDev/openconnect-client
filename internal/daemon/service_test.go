@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -55,8 +56,8 @@ func (p *blockingProcess) Signal(signal os.Signal) error {
 }
 func (p *blockingProcess) PID() int { return 1 }
 
-func (r *testRunner) StartCommand(ctx context.Context, _ string, _ []string) (vpn.Process, error) {
-	p := &testProcess{ctx: ctx, exit: make(chan struct{})}
+func (r *testRunner) StartCommand(ctx context.Context, _ string, args []string) (vpn.Process, error) {
+	p := &testProcess{ctx: ctx, exit: make(chan struct{}), args: append([]string(nil), args...)}
 	r.started <- p
 	return p, nil
 }
@@ -64,6 +65,7 @@ func (r *testRunner) StartCommand(ctx context.Context, _ string, _ []string) (vp
 type testProcess struct {
 	ctx   context.Context
 	exit  chan struct{}
+	args  []string
 	once  sync.Once
 	waits atomic.Int32
 }
@@ -82,7 +84,7 @@ func (p *testProcess) Signal(signal os.Signal) error {
 }
 func (p *testProcess) PID() int { return 1 }
 
-func startService(t *testing.T, authorizer ipc.Authorizer, policy func(vpn.ConnectionConfig) bool) (ipc.Client, *testRunner, context.CancelFunc, <-chan error) {
+func startService(t *testing.T, authorizer ipc.Authorizer, policy func(vpn.ConnectionConfig) (vpn.ConnectionConfig, bool)) (ipc.Client, *testRunner, context.CancelFunc, <-chan error) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "control.sock")
 	runner := &testRunner{started: make(chan *testProcess, 16)}
@@ -152,8 +154,12 @@ func allowPeer() ipc.Authorizer {
 	return ipc.AuthorizerFunc(func(context.Context, ipc.PeerCredentials) error { return nil })
 }
 
+func allowConfig(config vpn.ConnectionConfig) (vpn.ConnectionConfig, bool) {
+	return config, true
+}
+
 func TestServiceLifecycleOverSocket(t *testing.T) {
-	client, runner, _, _ := startService(t, allowPeer(), func(vpn.ConnectionConfig) bool { return true })
+	client, runner, _, _ := startService(t, allowPeer(), allowConfig)
 	if got := state(t, call(t, client, ipc.CommandStatus)); got != "disconnected" {
 		t.Fatalf("initial state = %s", got)
 	}
@@ -196,7 +202,7 @@ func TestServicePolicyAndAuthorizationFailClosed(t *testing.T) {
 	})
 	t.Run("unauthorized peer", func(t *testing.T) {
 		deny := ipc.AuthorizerFunc(func(context.Context, ipc.PeerCredentials) error { return errors.New("denied") })
-		client, runner, _, _ := startService(t, deny, func(vpn.ConnectionConfig) bool { return true })
+		client, runner, _, _ := startService(t, deny, allowConfig)
 		response := call(t, client, ipc.CommandConnect)
 		if response.OK || response.Error.Code != "unauthorized" {
 			t.Fatalf("response = %+v", response)
@@ -215,15 +221,68 @@ func TestServiceEnforcesLoadedPolicy(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	path := writePolicy(t, dir, `{"connections":[{"server":"vpn.example.com","protocol":"anyconnect","script":"`+script+`"}]}`)
+	otherScript := filepath.Join(dir, "other-script")
+	if err := os.WriteFile(otherScript, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := writePolicy(t, dir, `{"connections":[`+
+		`{"server":"vpn.example.com","protocol":"anyconnect","script":"`+script+`"},`+
+		`{"server":"ambiguous","protocol":"anyconnect","script":"`+script+`"},`+
+		`{"server":"ambiguous","protocol":"anyconnect","script":"`+otherScript+`"}`+
+		`]}`)
 	policy, err := loadPolicy(path, dir, uint32(os.Getuid()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, runner, _, _ := startService(t, allowPeer(), policy.Allows)
+	client, runner, _, _ := startService(t, allowPeer(), policy.Resolve)
+	for _, params := range []string{
+		`{"server":"other.example.com","protocol":"anyconnect"}`,
+		`{"server":"ambiguous","protocol":"anyconnect"}`,
+		`{"server":"vpn.example.com","protocol":"anyconnect","script":"` + otherScript + `"}`,
+	} {
+		denied := request(ipc.CommandConnect)
+		denied.Params = json.RawMessage(params)
+		response, err := client.Do(context.Background(), denied)
+		if err != nil || response.OK || response.Error == nil || response.Error.Code != "policy_denied" {
+			t.Fatalf("unapproved request = %+v, error = %v", response, err)
+		}
+		select {
+		case <-runner.started:
+			t.Fatal("unapproved request started a process")
+		default:
+		}
+	}
+	if err := os.Chmod(script, 0o722); err != nil {
+		t.Fatal(err)
+	}
 	response := call(t, client, ipc.CommandConnect)
 	if response.OK || response.Error == nil || response.Error.Code != "policy_denied" {
-		t.Fatalf("unapproved request = %+v", response)
+		t.Fatalf("untrusted script request = %+v", response)
+	}
+	select {
+	case <-runner.started:
+		t.Fatal("untrusted script started a process")
+	default:
+	}
+	if err := os.Chmod(script, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	response = call(t, client, ipc.CommandConnect)
+	if !response.OK {
+		t.Fatalf("scriptless approved request = %+v", response)
+	}
+	var process *testProcess
+	select {
+	case process = <-runner.started:
+	case <-time.After(time.Second):
+		t.Fatal("approved request did not start a process")
+	}
+	wantArgs := []string{"--protocol", "anyconnect", "--script", script, "vpn.example.com"}
+	if !slices.Equal(process.args, wantArgs) {
+		t.Fatalf("process arguments = %q, want %q", process.args, wantArgs)
+	}
+	if response := call(t, client, ipc.CommandDisconnect); !response.OK {
+		t.Fatalf("disconnect = %+v", response)
 	}
 	params, err := json.Marshal(ipc.ConnectParams{Server: "vpn.example.com", Protocol: "anyconnect", Script: script})
 	if err != nil {
@@ -243,7 +302,7 @@ func TestServiceEnforcesLoadedPolicy(t *testing.T) {
 }
 
 func TestServiceMapsStartupFailure(t *testing.T) {
-	service, err := NewService(filepath.Join(t.TempDir(), "control.sock"), failingRunner{}, allowPeer(), func(vpn.ConnectionConfig) bool { return true })
+	service, err := NewService(filepath.Join(t.TempDir(), "control.sock"), failingRunner{}, allowPeer(), allowConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +316,7 @@ func TestServiceMapsStartupFailure(t *testing.T) {
 }
 
 func TestServiceUnexpectedExitAndShutdown(t *testing.T) {
-	client, runner, cancel, _ := startService(t, allowPeer(), func(vpn.ConnectionConfig) bool { return true })
+	client, runner, cancel, _ := startService(t, allowPeer(), allowConfig)
 	call(t, client, ipc.CommandConnect)
 	process := <-runner.started
 	process.finish()
@@ -282,7 +341,7 @@ func TestServiceUnexpectedExitAndShutdown(t *testing.T) {
 }
 
 func TestServiceConcurrentConnects(t *testing.T) {
-	client, runner, _, _ := startService(t, allowPeer(), func(vpn.ConnectionConfig) bool { return true })
+	client, runner, _, _ := startService(t, allowPeer(), allowConfig)
 	const clients = 8
 	results := make(chan ipc.Response, clients)
 	errs := make(chan error, clients)
@@ -312,7 +371,7 @@ func TestServiceConcurrentConnects(t *testing.T) {
 
 func TestDisconnectDeadlineForceKillsProcess(t *testing.T) {
 	runner := blockingRunner{started: make(chan *blockingProcess, 1)}
-	service, err := NewService(filepath.Join(t.TempDir(), "control.sock"), runner, allowPeer(), func(vpn.ConnectionConfig) bool { return true })
+	service, err := NewService(filepath.Join(t.TempDir(), "control.sock"), runner, allowPeer(), allowConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +424,7 @@ func TestDisconnectDeadlineForceKillsProcess(t *testing.T) {
 func TestShutdownInterruptsInFlightDisconnect(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "control.sock")
 	runner := blockingRunner{started: make(chan *blockingProcess, 1)}
-	service, err := NewService(path, runner, allowPeer(), func(vpn.ConnectionConfig) bool { return true })
+	service, err := NewService(path, runner, allowPeer(), allowConfig)
 	if err != nil {
 		t.Fatal(err)
 	}

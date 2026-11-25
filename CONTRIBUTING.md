@@ -51,7 +51,9 @@ This command:
 3. Sets `OPENCONNECT_CLIENT_ENV=1` environment variable
 4. Provides Go, YSH, and other development tools
 
-**Important:** Always run `./scripts/shell.sh` before working on code. The git hooks will skip checks if this environment variable is not set.
+**Important:** Enter `./scripts/shell.sh` before running project tasks or
+committing with the configured hook. The hook runs the tasks; it does not skip
+them when the project environment is missing.
 
 ### Quick Build and Test
 
@@ -112,7 +114,11 @@ Runs **before each commit**. Checks:
 
 - ✅ Code formatting (`gofmt`)
 - ✅ Linting (`go vet`)
-- ✅ Accidental secrets detection (basic pattern matching)
+- ✅ Go unit tests and vulnerability scan
+- ✅ Staged filename and whitespace checks
+
+The formatting task writes project Go files, including unstaged files; review
+and stage any intended formatting changes. The hook does not detect secrets.
 
 **If pre-commit fails:**
 ```bash
@@ -131,29 +137,7 @@ git commit
 git commit --no-verify
 ```
 
-#### Pre-push Hook (`.githooks/pre-push`)
-
-Runs **before pushing to remote**. Checks:
-
-- ✅ Full test suite
-- ✅ Security vulnerabilities (`govulncheck`)
-
-**If pre-push fails:**
-```bash
-# Fix failing tests
-# (review test failures, update code, re-run tests)
-
-# Fix security vulnerabilities
-# (update dependencies or refactor code as needed)
-
-# Try push again
-git push
-```
-
-**Bypass (not recommended):**
-```bash
-git push --no-verify
-```
+There is no pre-push hook; run the applicable checks before pushing.
 
 ---
 
@@ -192,13 +176,14 @@ openconnect-client/
 │   ├── occlient/
 │   │   ├── main.go              # CLI entry point
 │   │   └── main_test.go
-│   └── occlientd/
-│       └── main.go              # Daemon entry point
+│   ├── occlientd/               # Daemon entry point
+│   └── occlient-gui/            # Desktop entry point
 ├── internal/
 │   ├── app/
 │   │   ├── cli.go               # CLI handler
 │   │   └── cli_test.go
 │   ├── daemon/                  # Daemon lifecycle
+│   ├── gui/                     # Desktop adapter and frontend
 │   ├── ipc/                     # Unix socket protocol and transport
 │   └── vpn/
 │       ├── types.go             # Core types and interfaces
@@ -255,8 +240,8 @@ exec.Command("bash", "-c", fmt.Sprintf("openconnect %s", serverURL))
 ### No Hardcoded Credentials
 
 - Never commit passwords, tokens, or API keys
-- Use configuration flags and environment variables for sensitive inputs
-- Document where sensitive data is expected (e.g., "OpenConnect prompts for password interactively")
+- Do not pass credentials or tokens through flags, environment variables, or
+  logs. Interactive authentication is not supported yet.
 
 ---
 
@@ -285,6 +270,10 @@ exec.Command("bash", "-c", fmt.Sprintf("openconnect %s", serverURL))
 go tool cover -html=coverage.out
 ```
 
+For frontend tests, run `npm test` in `internal/gui/frontend` after the build
+has installed the locked dependencies. See the [manual verification guide](docs/manual-verification.md)
+for task-runner fixtures and checks that require an authorized test host.
+
 ### Writing Tests
 
 - **Fakes over mocks:** Use fake implementations (see `internal/vpn/fake.go`) rather than mocking libraries
@@ -292,7 +281,8 @@ go tool cover -html=coverage.out
 - **Table-driven tests:** Use `t.Run()` for multiple related test cases
 - **Deterministic:** Tests should not depend on timing, randomness, or external state
 - **Fast:** Tests should complete in milliseconds; avoid sleep where possible
-- **No dependencies:** Tests should not require network, sudo, real processes, or credentials
+- **Isolation:** Ordinary tests should not require a VPN endpoint, sudo, or
+  credentials. Some lifecycle tests use temporary sockets or a test subprocess.
 
 ### Coverage Expectations
 
@@ -324,6 +314,11 @@ go tool cover -html=coverage.out
    - Security scan
    - Build verification
 
+   CI runs the YSH task-runner fixtures using a checksum-verified Oils release
+   matching the pinned Guix version. The Guix shell integration test
+   (`sh scripts/tests/test-shell-runner.sh`) runs locally from outside a Guix
+   environment; hosted CI does not install Guix.
+
 4. **Code review:** At least one approval required before merging
 
 5. **Merge:** Use "Squash and merge" for clean history (unless commit history is valuable)
@@ -349,10 +344,15 @@ Before submitting a PR, ensure:
 
 ```
 .github/workflows/     # GitHub Actions CI/CD
-.githooks/            # Git hooks (pre-commit, pre-push)
+.githooks/            # Pre-commit hook
 cmd/occlient/         # CLI binary (main entry point)
+cmd/occlientd/        # Daemon entry point
+cmd/occlient-gui/     # Desktop entry point
 internal/
   ├── app/            # CLI handler and argument parsing
+  ├── daemon/         # Daemon lifecycle and policy
+  ├── gui/            # Desktop adapter and frontend
+  ├── ipc/            # Shared IPC client and server
   └── vpn/            # VPN engine and OpenConnect integration
 docs/
   ├── plans/          # Phase milestones and task checklists

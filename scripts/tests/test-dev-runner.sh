@@ -6,11 +6,15 @@ temp_dir=$(mktemp -d)
 fixture=$temp_dir/project
 tools=$temp_dir/tools
 child_pid=
+watcher_pid=
 cleanup() {
 	status=$?
 	if [ "$status" -ne 0 ]; then
 		[ ! -f "$temp_dir/stdout" ] || cat "$temp_dir/stdout" >&2
 		[ ! -f "$temp_dir/stderr" ] || cat "$temp_dir/stderr" >&2
+	fi
+	if [ -n "$watcher_pid" ] && kill -0 "$watcher_pid" 2>/dev/null; then
+		kill "$watcher_pid" 2>/dev/null || true
 	fi
 	if [ -n "$child_pid" ] && kill -0 "$child_pid" 2>/dev/null; then
 		kill "$child_pid" 2>/dev/null || true
@@ -20,7 +24,7 @@ cleanup() {
 		"$fixture/scripts/wails-dev.yml" "$fixture/scripts/lib/gui-env.sh" "$fixture/scripts/lib/taskfile.ysh" \
 		"$fixture/build/tools/wails3" "$fixture/build/occlient" "$tools/go" "$tools/npm" "$tools/pkg-config" \
 		"$temp_dir/wails3" "$temp_dir/log" "$temp_dir/stdout" "$temp_dir/stderr" \
-		"$temp_dir/ready" "$temp_dir/signal" "$temp_dir/locale-link" \
+		"$temp_dir/ready" "$temp_dir/signal" "$temp_dir/release" "$temp_dir/locale-link" \
 		"$temp_dir/minimal/dirname" "$temp_dir/minimal/mkdir" "$temp_dir/minimal/rmdir" "$temp_dir/minimal/realpath" "$temp_dir/minimal/go"
 	if [ -d "$fixture/build/.dev-lock" ]; then rmdir "$fixture/build/.dev-lock"; fi
 	if [ -d "$fixture/build/.build-lock" ]; then rmdir "$fixture/build/.build-lock"; fi
@@ -83,7 +87,7 @@ printf 'wails %s\n' "$*" >> "$TEST_LOG"
 printf 'locale %s\n' "${GUIX_LOCPATH-unset}" >> "$TEST_LOG"
 if [ "${TEST_FAILURE:-}" = watcher ]; then exit 37; fi
 if [ "${TEST_WAIT:-0}" = 1 ]; then
-	trap 'echo INT > "$TEST_SIGNAL"; exit 0' INT
+	trap 'echo INT > "$TEST_SIGNAL"; while [ ! -e "$TEST_RELEASE" ]; do sleep 0.05; done; exit 0' INT
 	echo "$$" > "$TEST_READY"
 	while :; do
 		sleep 1 &
@@ -94,7 +98,7 @@ EOF
 chmod +x "$tools/go" "$tools/npm" "$tools/pkg-config" "$temp_dir/wails3"
 export PATH="$tools:$PATH" OPENCONNECT_CLIENT_ENV=1 DISPLAY=:test TEST_PROJECT="$fixture"
 export TEST_LOG="$temp_dir/log" TEST_WAILS_TEMPLATE="$temp_dir/wails3" TEST_VERSION=v0.0.2
-export TEST_READY="$temp_dir/ready" TEST_SIGNAL="$temp_dir/signal"
+export TEST_READY="$temp_dir/ready" TEST_SIGNAL="$temp_dir/signal" TEST_RELEASE="$temp_dir/release"
 export GOROOT=/invalid CC=/invalid CXX=/invalid CGO_CFLAGS=invalid CGO_CPPFLAGS=invalid CGO_CXXFLAGS=invalid CGO_LDFLAGS=invalid
 cd "$fixture"
 
@@ -213,7 +217,7 @@ for spec in 'TERM 143' 'INT 130'; do
 	set -- $spec
 	signal=$1
 	expected_status=$2
-	rm -f -- "$TEST_READY" "$TEST_SIGNAL"
+	rm -f -- "$TEST_READY" "$TEST_SIGNAL" "$TEST_RELEASE"
 	TEST_WAIT=1 ./run.ysh dev > "$temp_dir/stdout" 2> "$temp_dir/stderr" &
 	child_pid=$!
 	i=0
@@ -223,8 +227,25 @@ for spec in 'TERM 143' 'INT 130'; do
 		i=$((i + 1))
 	done
 	[ -s "$TEST_READY" ] || { echo 'development watcher did not start' >&2; exit 1; }
+	watcher_pid=$(cat "$TEST_READY")
 	[ -e build/.dev-lock ] && [ ! -e build/.build-lock ]
 	kill -s "$signal" "$child_pid"
+	i=0
+	while [ "$i" -lt 100 ]; do
+		[ -s "$TEST_SIGNAL" ] && break
+		sleep 0.05
+		i=$((i + 1))
+	done
+	[ -s "$TEST_SIGNAL" ] || { echo 'development watcher did not receive INT' >&2; exit 1; }
+	grep -qx INT "$TEST_SIGNAL"
+	kill -0 "$child_pid"
+	kill -0 "$watcher_pid"
+	[ -e build/.dev-lock ]
+	kill -TERM "$child_pid"
+	sleep 0.1
+	kill -0 "$child_pid"
+	[ -e build/.dev-lock ]
+	touch "$TEST_RELEASE"
 	if wait "$child_pid"; then
 		echo "development signal status lost: $signal" >&2
 		exit 1
@@ -232,6 +253,11 @@ for spec in 'TERM 143' 'INT 130'; do
 		[ "$?" -eq "$expected_status" ]
 	fi
 	child_pid=
+	if kill -0 "$watcher_pid" 2>/dev/null; then
+		echo 'development watcher remained running after shutdown' >&2
+		exit 1
+	fi
+	watcher_pid=
 	assert_unlocked
 done
 
